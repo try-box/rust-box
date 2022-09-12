@@ -2,29 +2,27 @@
 
 [![GitHub Release](https://img.shields.io/github/release/try-box/try-box?color=brightgreen)](https://github.com/try-box/try-box/releases)
 
-English | [简体中文](./README-CN.md)
+[English](./README.md)  | 简体中文
 
-*Try Box* This crate provides an odd set of tools for Rust programming:
+*Try Box* 这个 *Crate* 提供了一组用于Rust编程的奇葩工具：
 
 ## Crates
 The main `try-box` crate just [re-exports](src/lib.rs) tools from
 smaller subcrates:
 
 * [`stream-ext`](stream-ext)
-  An extension trait for Streams that provides a variety of convenient combinator functions.
+  Streams 的扩展特征，提供各种方便的组合函数。
 * [`queue-ext`](queue-ext)
-  The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to Sender.
+  队列的扩展特征，可将队列的pop()函数转换为Stream，push()函数转换为Sender。
 
+## 使用
 
-## Usage
-
-Add this to your `Cargo.toml`:
+加入下面依赖到你的 `Cargo.toml`:
 
 ```toml
 [dependencies]
 try-box = "0.1"
 ```
-
 
 ## License
 

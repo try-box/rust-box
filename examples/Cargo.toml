@@ -1,0 +1,31 @@
+[package]
+name = "examples"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "stream-ext-test"
+path = "src/stream-ext-test.rs"
+
+[[bin]]
+name = "queue-ext-test"
+path = "src/queue-ext-test.rs"
+
+
+[dependencies]
+try-box = { path = "../", features = ["queue-ext", "stream-ext"] }
+
+futures = "0.3"
+linked-hash-map = "0.5"
+log = "0.4"
+env_logger = "0.8.4"
+parking_lot = "0.12"
+crossbeam-queue = "0.3"
+leaky-bucket = "0.12"
+
+async-std = { version = "1.12", features = ["attributes"] }
+tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
+
+[workspace]

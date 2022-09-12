@@ -1,0 +1,30 @@
+[package]
+name = "try-box"
+version = "0.1.0"
+edition = "2018"
+rust-version = "1.38"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/try-box"
+homepage = "https://github.com/try-box/try-box"
+description = "Tools for rust programming"
+keywords = ["stream", "sender", "limiter"]
+exclude = ["examples"]
+
+
+[features]
+default = ["queue-ext", "stream-ext"]
+
+[dependencies]
+queue-ext = { version = "0.1", path = "./queue-ext", default-features = false, optional = true }
+stream-ext = { version = "0.1", path = "./stream-ext", default-features = false, optional = true }
+
+[workspace]
+members = [
+    ".",
+    "queue-ext",
+    "stream-ext",
+]
+
+[patch.crates-io]
+stream-ext = { path = "stream-ext" }
+queue-ext = { path = "queue-ext" }

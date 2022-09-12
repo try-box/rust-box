@@ -1,0 +1,13 @@
+[package]
+name = "stream-ext"
+version = "0.1.0"
+edition = "2018"
+rust-version = "1.38"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3"
+futures-util = "0.3"
+log = "0.4"
+pin-project-lite = "0.2"

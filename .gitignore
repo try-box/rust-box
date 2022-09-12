@@ -12,4 +12,7 @@ Cargo.lock
 .idea
 try-box.iml
 
+/examples/target/
+/examples/Cargo.lock
+
 
