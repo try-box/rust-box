@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 
 use super::Waker;
 
-#[derive(Clone)]
 pub struct Sender<S, Item, F, R> {
     s: S,
     f: F,
@@ -11,9 +10,24 @@ pub struct Sender<S, Item, F, R> {
     _r: PhantomData<R>,
 }
 
+impl<S, Item, F, R> Clone for Sender<S, Item, F, R>
+    where
+        S: Clone,
+        F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            s: self.s.clone(),
+            f: self.f.clone(),
+            _item: PhantomData,
+            _r: PhantomData,
+        }
+    }
+}
+
 impl<S, Item, F, R> fmt::Debug for Sender<S, Item, F, R>
-where
-    S: fmt::Debug,
+    where
+        S: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sender").field("stream", &self.s).finish()

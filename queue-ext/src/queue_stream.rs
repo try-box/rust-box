@@ -13,7 +13,6 @@ use pin_project_lite::pin_project;
 use super::Waker;
 
 pin_project! {
-    #[derive(Clone)]
     #[must_use = "streams do nothing unless polled"]
     pub struct QueueStream<Q, Item, F> {
         #[pin]
@@ -22,6 +21,21 @@ pin_project! {
         f: F,
         recv_task: Arc<AtomicWaker>,
         _item: PhantomData<Item>,
+    }
+}
+
+impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
+    where
+        Q: Clone,
+        F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            q: self.q.clone(),
+            f: self.f.clone(),
+            recv_task: self.recv_task.clone(),
+            _item: PhantomData,
+        }
     }
 }
 
