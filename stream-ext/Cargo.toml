@@ -3,8 +3,11 @@ name = "stream-ext"
 version = "0.1.0"
 edition = "2018"
 rust-version = "1.38"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/stream-ext"
+homepage = "https://github.com/try-box/rust-box/tree/main/stream-ext"
+description = "An extension trait for Streams that provides a variety of convenient combinator functions"
+keywords = ["stream", "limiter", "ratelimiter"]
 
 [features]
 default = []

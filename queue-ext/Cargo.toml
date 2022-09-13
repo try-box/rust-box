@@ -3,8 +3,11 @@ name = "queue-ext"
 version = "0.1.0"
 edition = "2018"
 rust-version = "1.38"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/queue-ext"
+homepage = "https://github.com/try-box/rust-box/tree/main/queue-ext"
+description = "The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to Sender."
+keywords = ["queue", "stream", "sender"]
 
 [dependencies]
 futures = "0.3"
