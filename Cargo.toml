@@ -17,8 +17,11 @@ leaky-bucket = ["stream-ext/leaky-bucket"]
 governor = ["stream-ext/governor"]
 
 [dependencies]
-queue-ext = { version = "0.1", path = "./queue-ext", default-features = false, optional = true }
-stream-ext = { version = "0.1", path = "./stream-ext", default-features = false, optional = true }
+#queue-ext = { version = "0.1", path = "./queue-ext", default-features = false, optional = true }
+#stream-ext = { version = "0.1", path = "./stream-ext", default-features = false, optional = true }
+queue-ext = { version = "0.1", default-features = false, optional = true }
+stream-ext = { version = "0.1", default-features = false, optional = true }
+
 
 [workspace]
 members = [
