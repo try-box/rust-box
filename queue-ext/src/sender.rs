@@ -12,8 +12,8 @@ pub struct Sender<S, Item, F, R> {
 }
 
 impl<S, Item, F, R> fmt::Debug for Sender<S, Item, F, R>
-    where
-        S: fmt::Debug,
+where
+    S: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sender").field("stream", &self.s).finish()
