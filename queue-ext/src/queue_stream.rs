@@ -29,6 +29,7 @@ impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
         Q: Clone,
         F: Clone,
 {
+    #[inline]
     fn clone(&self) -> Self {
         Self {
             q: self.q.clone(),
@@ -51,6 +52,7 @@ impl<Q, Item, F> fmt::Debug for QueueStream<Q, Item, F>
 }
 
 impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
+    #[inline]
     pub(super) fn new(q: Q, f: F) -> Self {
         Self {
             q,
@@ -62,6 +64,7 @@ impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
 }
 
 impl<Q, Item, F> Waker for QueueStream<Q, Item, F> {
+    #[inline]
     fn wake(&self) {
         self.recv_task.wake()
     }
@@ -89,12 +92,14 @@ impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
 
 impl<Q, Item, F> Deref for QueueStream<Q, Item, F> {
     type Target = Q;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.q
     }
 }
 
 impl<Q, Item, F> DerefMut for QueueStream<Q, Item, F> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.q
     }

@@ -19,6 +19,8 @@ pub trait Waker {
 impl<T: ?Sized> QueueExt for T {}
 
 pub trait QueueExt {
+
+    #[inline]
     fn queue_stream<Item, F>(self, f: F) -> QueueStream<Self, Item, F>
         where
             Self: Sized + Unpin,
@@ -27,6 +29,7 @@ pub trait QueueExt {
         assert_stream::<Item, _>(QueueStream::new(self, f))
     }
 
+    #[inline]
     fn sender<Item, F, R>(self, f: F) -> Sender<Self, Item, F, R>
         where
             Self: Sized + Waker,

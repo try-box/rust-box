@@ -15,6 +15,7 @@ impl<S, Item, F, R> Clone for Sender<S, Item, F, R>
         S: Clone,
         F: Clone,
 {
+    #[inline]
     fn clone(&self) -> Self {
         Self {
             s: self.s.clone(),
@@ -39,6 +40,7 @@ impl<S, Item, F, R> Sender<S, Item, F, R>
         S: Waker,
         F: Fn(&mut S, Item) -> R,
 {
+    #[inline]
     pub(super) fn new(s: S, f: F) -> Self {
         Self {
             s,
@@ -48,17 +50,24 @@ impl<S, Item, F, R> Sender<S, Item, F, R>
         }
     }
 
-    pub fn as_mut(&mut self) -> &mut S {
-        &mut self.s
-    }
-
-    pub fn as_ref(&self) -> &S {
-        &self.s
-    }
-
+    #[inline]
     pub fn send(&mut self, v: Item) -> R {
         let res = (self.f)(&mut self.s, v);
         self.s.wake();
         res
+    }
+}
+
+impl<S, Item, F, R> std::convert::AsMut<S> for Sender<S, Item, F, R> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut S {
+        &mut self.s
+    }
+}
+
+impl<S, Item, F, R> std::convert::AsRef<S> for Sender<S, Item, F, R> {
+    #[inline]
+    fn as_ref(&self) -> &S {
+        &self.s
     }
 }

@@ -29,6 +29,7 @@ where
 }
 
 impl<St, L> IntoLimiter<St, L> {
+    #[inline]
     pub(crate) fn new(stream: St, limiter: L) -> Self {
         Self { stream, limiter }
     }
@@ -39,6 +40,7 @@ where
     St: FusedStream + Unpin,
     L: Limiter + Unpin,
 {
+    #[inline]
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
     }
@@ -58,6 +60,7 @@ impl<St, F> Stream for IntoLimiter<St, F>
         }
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.stream.size_hint()
     }

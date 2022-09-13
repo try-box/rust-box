@@ -20,6 +20,7 @@ impl fmt::Debug for LeakyBucketRateLimiter {
 }
 
 impl LeakyBucketRateLimiter {
+    #[inline]
     pub(super) fn new(limiter: RateLimiter) -> Self {
         let limiter = Arc::new(limiter);
         let acquire = Box::pin(limiter.clone().acquire_owned(1));
@@ -28,6 +29,7 @@ impl LeakyBucketRateLimiter {
 }
 
 impl Limiter for LeakyBucketRateLimiter {
+    #[inline]
     fn acquire(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<()>> {
         let poll = self.acquire.poll_unpin(cx);
         if poll.is_ready() {

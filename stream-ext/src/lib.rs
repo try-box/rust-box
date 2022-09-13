@@ -13,6 +13,8 @@ mod limiter;
 impl<T: ?Sized> LimiterExt for T where T: Stream {}
 
 pub trait LimiterExt: Stream {
+
+    #[inline]
     fn limiter<L>(self, l: L) -> IntoLimiter<Self, L>
         where
             Self: Sized + Stream + Unpin,
@@ -22,6 +24,7 @@ pub trait LimiterExt: Stream {
     }
 
     #[cfg(feature = "leaky-bucket")]
+    #[inline]
     fn leaky_bucket_limiter(
         self,
         rate_limiter: leaky_bucket::RateLimiter,
@@ -34,6 +37,7 @@ pub trait LimiterExt: Stream {
     }
 
     #[cfg(feature = "governor")]
+    #[inline]
     fn governor_limiter<D, C, MW>(
         self,
         rate_limiter: &governor::RateLimiter<governor::state::NotKeyed, D, C, MW>,
