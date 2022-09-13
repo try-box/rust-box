@@ -35,9 +35,9 @@ impl<St, L> IntoLimiter<St, L> {
 }
 
 impl<St, L> FusedStream for IntoLimiter<St, L>
-    where
-        St: FusedStream + Unpin,
-        L: Limiter + Unpin,
+where
+    St: FusedStream + Unpin,
+    L: Limiter + Unpin,
 {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
