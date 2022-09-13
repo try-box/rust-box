@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use futures::{FutureExt, SinkExt, stream, StreamExt};
-use leaky_bucket::{AcquireOwned, RateLimiter};
+use rust_box::queue_ext::{QueueExt, Waker};
 use std::collections::*;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::task::spawn_local;
-use try_box::queue_ext::{QueueExt, Waker};
 
 fn main() {
     std::env::set_var("RUST_LOG", "queue_ext=info");
@@ -18,7 +17,7 @@ fn main() {
 
     let runner = async move {
         let test_futs1 = futures::future::join4(
-            test_with_into_stream(),
+            test_with_queue_stream(),
             test_with_vec_deque(),
             test_with_linked_hash_map(),
             test_with_heep(),
@@ -31,7 +30,7 @@ fn main() {
 
         futures::future::join(test_futs1, test_futs2).await;
 
-        // test_with_into_stream().await;
+        // test_with_queue_stream().await;
         // test_with_vec_deque().await;
         // test_with_linked_hash_map().await;
         // test_with_heep().await;
@@ -72,9 +71,9 @@ async fn test_futures_channel() {
     log::info!("end ...");
 }
 
-async fn test_with_into_stream() {
+async fn test_with_queue_stream() {
     use parking_lot::RwLock;
-    let mut s = Rc::new(RwLock::new(VecDeque::new())).into_stream(|s, _| {
+    let mut s = Rc::new(RwLock::new(VecDeque::new())).queue_stream(|s, _| {
         let mut s = s.write();
         if s.is_empty() {
             Poll::Pending
@@ -100,7 +99,7 @@ async fn test_with_into_stream() {
     while let Some(item) = s.next().await {
         count += 1;
         log::info!(
-            "test into_stream: {:?}, len: {}, count: {}",
+            "test queue_stream: {:?}, len: {}, count: {}",
             item,
             s.read().len(),
             count
@@ -110,7 +109,7 @@ async fn test_with_into_stream() {
 
 async fn test_with_vec_deque() {
     use parking_lot::RwLock;
-    let mut s = Rc::new(RwLock::new(VecDeque::new())).into_stream(|s, _| {
+    let mut s = Rc::new(RwLock::new(VecDeque::new())).queue_stream(|s, _| {
         let mut s = s.write();
         if s.is_empty() {
             Poll::Pending
@@ -149,7 +148,7 @@ async fn test_with_vec_deque() {
 async fn test_with_linked_hash_map() {
     use linked_hash_map::LinkedHashMap;
     use parking_lot::RwLock;
-    let mut s = Rc::new(RwLock::new(LinkedHashMap::new())).into_stream::<(i32, i32), _>(|s, _| {
+    let mut s = Rc::new(RwLock::new(LinkedHashMap::new())).queue_stream::<(i32, i32), _>(|s, _| {
         let mut s = s.write();
         if s.is_empty() {
             Poll::Pending
@@ -186,7 +185,7 @@ async fn test_with_linked_hash_map() {
 async fn test_with_heep() {
     use parking_lot::RwLock;
 
-    let mut s = Rc::new(RwLock::new(BinaryHeap::new())).into_stream(|s, _| {
+    let mut s = Rc::new(RwLock::new(BinaryHeap::new())).queue_stream(|s, _| {
         let mut s = s.write();
         if s.is_empty() {
             Poll::Pending
@@ -217,7 +216,7 @@ async fn test_with_heep() {
 async fn test_with_crossbeam_segqueue() {
     use crossbeam_queue::SegQueue;
 
-    let mut s = Rc::new(SegQueue::default()).into_stream(|s, _| {
+    let mut s = Rc::new(SegQueue::default()).queue_stream(|s, _| {
         if s.is_empty() {
             Poll::Pending
         } else {
@@ -247,7 +246,7 @@ async fn test_with_crossbeam_segqueue() {
 async fn test_with_crossbeam_arrqueue() {
     use crossbeam_queue::ArrayQueue;
 
-    let mut s = Rc::new(ArrayQueue::new(10)).into_stream(|s, _| {
+    let mut s = Rc::new(ArrayQueue::new(10)).queue_stream(|s, _| {
         if s.is_empty() {
             Poll::Pending
         } else {
