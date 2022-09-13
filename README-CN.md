@@ -21,8 +21,14 @@ smaller subcrates:
 
 ```toml
 [dependencies]
-try-box = "0.1"
+rust-box = "0.1"
 ```
+
+## 例子
+
+- [queue-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/queue-ext-test.rs) 
+- [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
+
 
 ## License
 
