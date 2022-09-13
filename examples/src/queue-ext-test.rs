@@ -1,7 +1,7 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
-use futures::{FutureExt, SinkExt, stream, StreamExt};
+use futures::{AsyncWriteExt, FutureExt, SinkExt, stream, StreamExt};
 use rust_box::queue_ext::{QueueExt, Waker};
 use std::collections::*;
 use std::pin::Pin;
@@ -16,23 +16,25 @@ fn main() {
     env_logger::init();
 
     let runner = async move {
-        let test_futs1 = futures::future::join4(
+        let test_futs1 = futures::future::join5(
             test_with_queue_stream(),
             test_with_vec_deque(),
             test_with_linked_hash_map(),
+            test_with_linked_hash_map_async_lock(),
             test_with_heep(),
         );
 
         let test_futs2 = futures::future::join(
             test_with_crossbeam_segqueue(),
             test_with_crossbeam_arrqueue(),
-        );
+        ).await;
 
-        futures::future::join(test_futs1, test_futs2).await;
+        // futures::future::join(test_futs1, test_futs2).await;
 
         // test_with_queue_stream().await;
         // test_with_vec_deque().await;
         // test_with_linked_hash_map().await;
+        // test_with_linked_hash_map_async_lock().await;
         // test_with_heep().await;
         // test_with_crossbeam_segqueue().await;
         // test_with_crossbeam_arrqueue().await;
@@ -178,6 +180,56 @@ async fn test_with_linked_hash_map() {
 
     while let Some(item) = s.next().await {
         log::info!("test linked_hash_map: {:?}, len: {}", item, s.read().len());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn test_with_linked_hash_map_async_lock() {
+    use linked_hash_map::LinkedHashMap;
+    use tokio::sync::RwLock;
+    let m: LinkedHashMap<i32, i32> = LinkedHashMap::new();
+    let mut s = Rc::new(RwLock::new(m)).queue_stream(|s, cx| {
+        let s = s.clone();
+        let res = async move {
+            let mut s = s.write().await;
+            if s.is_empty() {
+                None
+            } else {
+                match s.pop_front() {
+                    Some(m) => Some(m),
+                    None => None,
+                }
+            }
+        };
+        use futures_lite::StreamExt as _;
+        let mut res = Box::pin(res.into_stream());
+        match res.poll_next(cx) {
+            Poll::Ready(Some(Some(m))) => Poll::Ready(Some(m)),
+            _ => Poll::Pending,
+        }
+    });
+
+    let mut tx = s.clone().sender(|s, v: (i32, i32)| {
+        let s = s.clone();
+        async move {
+            let mut s = s.write().await;
+            let key = v.0;
+            if s.contains_key(&key) {
+                s.remove(&key);
+            }
+            s.insert(key, v.1);
+        }
+    });
+
+    spawn_local(async move {
+        for i in 0..100 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let res = tx.send((i % 10, i)).await;
+        }
+    });
+
+    while let Some(item) = s.next().await {
+        log::info!("test linked_hash_map async_lock: {:?}", item);
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

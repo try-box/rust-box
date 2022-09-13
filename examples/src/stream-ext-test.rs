@@ -24,7 +24,8 @@ fn main() {
             test_with_limiter(),
             test_with_leaky_bucket_limiter(),
             test_with_governor_limiter(),
-        ).await;
+        )
+            .await;
 
         // test_with_limiter().await;
         // test_with_leaky_bucket_limiter().await;
