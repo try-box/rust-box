@@ -5,11 +5,11 @@ use std::task::{Context, Poll};
 use futures::Stream;
 
 #[allow(unreachable_pub)]
-pub use self::into_stream::IntoStream;
+pub use self::queue_stream::QueueStream;
 #[allow(unreachable_pub)]
 pub use self::sender::Sender;
 
-mod into_stream;
+mod queue_stream;
 mod sender;
 
 pub trait Waker {
@@ -19,12 +19,12 @@ pub trait Waker {
 impl<T: ?Sized> QueueExt for T {}
 
 pub trait QueueExt {
-    fn into_stream<Item, F>(self, f: F) -> IntoStream<Self, Item, F>
+    fn queue_stream<Item, F>(self, f: F) -> QueueStream<Self, Item, F>
         where
             Self: Sized + Unpin,
             F: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>>,
     {
-        assert_stream::<Item, _>(IntoStream::new(self, f))
+        assert_stream::<Item, _>(QueueStream::new(self, f))
     }
 
     fn sender<Item, F, R>(self, f: F) -> Sender<Self, Item, F, R>

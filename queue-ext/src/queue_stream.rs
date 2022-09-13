@@ -15,9 +15,9 @@ use super::Waker;
 pin_project! {
     #[derive(Clone)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct IntoStream<S, Item, F> {
+    pub struct QueueStream<Q, Item, F> {
         #[pin]
-        s: S,
+        q: Q,
         #[pin]
         f: F,
         recv_task: Arc<AtomicWaker>,
@@ -25,21 +25,21 @@ pin_project! {
     }
 }
 
-impl<S, Item, F> fmt::Debug for IntoStream<S, Item, F>
+impl<Q, Item, F> fmt::Debug for QueueStream<Q, Item, F>
     where
-        S: fmt::Debug,
+        Q: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IntoStream")
-            .field("stream", &self.s)
+        f.debug_struct("QueueStream")
+            .field("queue", &self.q)
             .finish()
     }
 }
 
-impl<S: Unpin, Item, F> IntoStream<S, Item, F> {
-    pub(super) fn new(s: S, f: F) -> Self {
+impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
+    pub(super) fn new(q: Q, f: F) -> Self {
         Self {
-            s,
+            q,
             f,
             recv_task: Arc::new(AtomicWaker::new()),
             _item: PhantomData,
@@ -47,41 +47,41 @@ impl<S: Unpin, Item, F> IntoStream<S, Item, F> {
     }
 }
 
-impl<S, Item, F> Waker for IntoStream<S, Item, F> {
+impl<Q, Item, F> Waker for QueueStream<Q, Item, F> {
     fn wake(&self) {
         self.recv_task.wake()
     }
 }
 
-impl<S, Item, F> Stream for IntoStream<S, Item, F>
+impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
     where
-        S: Unpin,
-        F: Fn(Pin<&mut S>, &mut Context<'_>) -> Poll<Option<Item>>,
+        Q: Unpin,
+        F: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>>,
 {
     type Item = Item;
 
     fn poll_next(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         let f = this.f.as_mut();
-        match f(this.s.as_mut(), ctx) {
+        match f(this.q.as_mut(), ctx) {
             Poll::Ready(msg) => Poll::Ready(msg),
             Poll::Pending => {
                 this.recv_task.register(ctx.waker());
-                f(this.s.as_mut(), ctx)
+                f(this.q.as_mut(), ctx)
             }
         }
     }
 }
 
-impl<S, Item, F> Deref for IntoStream<S, Item, F> {
-    type Target = S;
+impl<Q, Item, F> Deref for QueueStream<Q, Item, F> {
+    type Target = Q;
     fn deref(&self) -> &Self::Target {
-        &self.s
+        &self.q
     }
 }
 
-impl<S, Item, F> DerefMut for IntoStream<S, Item, F> {
+impl<Q, Item, F> DerefMut for QueueStream<Q, Item, F> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.s
+        &mut self.q
     }
 }
