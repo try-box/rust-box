@@ -15,7 +15,7 @@ path = "src/queue-ext-test.rs"
 
 
 [dependencies]
-try-box = { path = "../", features = ["queue-ext", "stream-ext"] }
+rust-box = { path = "../", features = ["leaky-bucket", "governor"] }
 
 futures = "0.3"
 linked-hash-map = "0.5"
@@ -24,6 +24,8 @@ env_logger = "0.8.4"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 leaky-bucket = "0.12"
+governor = "0.4"
+nonzero_ext = { version = "0.3.0", default-features = false }
 
 async-std = { version = "1.12", features = ["attributes"] }
 tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
