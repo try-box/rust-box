@@ -1,6 +1,8 @@
-# Try Box
+# Rust Box
 
-[![GitHub Release](https://img.shields.io/github/release/try-box/try-box?color=brightgreen)](https://github.com/try-box/try-box/releases)
+<a href="https://github.com/try-box/rust-box/releases"><img alt="GitHub Release" src="https://img.shields.io/github/release/try-box/rust-box?color=brightgreen" /></a>
+<a href="https://crates.io/crates/rust-box"><img alt="crates.io" src="https://img.shields.io/crates/v/rust-box" /></a>
+<a href="https://docs.rs/rust-box"><img alt="Documentation" src="https://docs.rs/rust-box/badge.svg" /></a>
 
 English | [简体中文](./README-CN.md)
 
