@@ -27,9 +27,9 @@ fn main() {
         let test_futs2 = futures::future::join(
             test_with_crossbeam_segqueue(),
             test_with_crossbeam_arrqueue(),
-        ).await;
+        );
 
-        // futures::future::join(test_futs1, test_futs2).await;
+        futures::future::join(test_futs1, test_futs2).await;
 
         // test_with_queue_stream().await;
         // test_with_vec_deque().await;
