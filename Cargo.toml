@@ -1,18 +1,20 @@
 [package]
-name = "try-box"
+name = "rust-box"
 version = "0.1.0"
 edition = "2018"
 rust-version = "1.38"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/try-box/try-box"
-homepage = "https://github.com/try-box/try-box"
+repository = "https://github.com/try-box/rust-box"
+homepage = "https://github.com/try-box/rust-box"
 description = "Tools for rust programming"
-keywords = ["stream", "sender", "limiter"]
+keywords = ["queue", "stream", "sender", "limiter"]
 exclude = ["examples"]
 
 
 [features]
 default = ["queue-ext", "stream-ext"]
+leaky-bucket = ["stream-ext/leaky-bucket"]
+governor = ["stream-ext/governor"]
 
 [dependencies]
 queue-ext = { version = "0.1", path = "./queue-ext", default-features = false, optional = true }
