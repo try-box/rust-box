@@ -44,34 +44,6 @@ fn main() {
     // tokio::runtime::Runtime::new().unwrap().block_on(runner);
 }
 
-async fn test_futures_channel() {
-    use futures::channel::mpsc::unbounded;
-    use futures::channel::mpsc::Receiver;
-
-    let (mut tx, mut rx) = unbounded::<i32>();
-
-    spawn_local(async move {
-        for i in 0..10 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            let res = tx.send(i).await;
-            if let Err(e) = res {
-                log::info!("send error, {:?}", e);
-            }
-            if i == 5 {
-                tx.close_channel();
-                // tx.close().await;
-                // tx.disconnect();
-            }
-        }
-    });
-
-    let mut count = 0;
-    while let Some(item) = rx.next().await {
-        count += 1;
-        log::info!("test futures_channel: {:?}, count: {}", item, count);
-    }
-    log::info!("end ...");
-}
 
 async fn test_with_queue_stream() {
     use parking_lot::RwLock;
