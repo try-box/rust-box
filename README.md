@@ -17,7 +17,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 * [`queue-ext`](queue-ext)
   The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to
   Sender.
-* [`tokio-executor`](tokio-executor)
+* [`task-executor`](task-executor)
   A task executor that controls the number of concurrently executing tasks.
 
 ## Usage
