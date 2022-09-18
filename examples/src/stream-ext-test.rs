@@ -1,10 +1,6 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
-use futures::{FutureExt, SinkExt, stream, StreamExt};
-use futures::{Future, Stream};
-use rust_box::queue_ext::{QueueExt, Waker};
-use rust_box::stream_ext::{IntoLimiter, Limiter, LimiterExt};
 use std::collections::*;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -12,6 +8,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+use futures::{FutureExt, SinkExt, stream, StreamExt};
+use futures::{Future, Stream};
+use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
+use rust_box::stream_ext::{IntoLimiter, Limiter, LimiterExt};
 use tokio::task::spawn_local;
 use tokio::time::{Instant, Sleep};
 
@@ -44,7 +45,7 @@ async fn test_with_limiter() {
     struct TheLimiter {
         sleep: Pin<Box<Sleep>>,
     }
-    ;
+
     impl TheLimiter {
         fn new() -> Self {
             Self {
@@ -124,13 +125,15 @@ fn get_queue_stream(max: i32) -> impl Stream<Item=i32> + Debug {
         }
     });
 
-    let mut tx = s.clone().sender::<i32, _, _>(|s, v| {
-        s.push(v);
+    let mut tx = s.clone().sender::<i32, _, _>(|s, act| match act {
+        Action::Send(item) => Reply::Send(s.push(item)),
+        Action::IsFull => Reply::IsFull(false),
+        Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
     });
 
     spawn_local(async move {
         for i in 0..max {
-            tx.send(i);
+            tx.send(i).await;
         }
     });
 
