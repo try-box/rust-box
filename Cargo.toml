@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box"
 homepage = "https://github.com/try-box/rust-box"
 description = "This crate provides an odd set of tools for Rust programming"
-keywords = ["queue", "stream", "sender", "limiter", "task", "executor"]
+keywords = ["queue", "stream", "sender", "limiter", "executor"]
 exclude = ["examples"]
 
 
