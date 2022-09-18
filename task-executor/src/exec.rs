@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 
+use crossbeam_queue::ArrayQueue;
 use futures::{ready, Sink, SinkExt, StreamExt};
 use futures::channel::mpsc;
 use futures::task::AtomicWaker;
@@ -16,7 +17,6 @@ use pin_project_lite::pin_project;
 #[cfg(feature = "rate")]
 use update_rate::{DiscreteRateCounter, RateCounter};
 
-use crossbeam_queue::ArrayQueue;
 use queue_ext::{Action, QueueExt, Reply};
 
 use super::Counter;
@@ -192,35 +192,30 @@ impl<Item> Executor<Item>
         }
 
         let tasks_bus = async move {
-            loop {
-                match task_rx.next().await {
-                    Some(task) => {
-                        let mut _tx = None;
-                        loop {
-                            if idle_idxs.read().is_empty() {
-                                //sleep ...
-                                PendingOnce::new(idle_waker.clone()).await;
-                            } else {
-                                //select ...
-                                let mut idle_idxs_mut = idle_idxs.write();
-                                let idx = if let Some(idx) = idle_idxs_mut.iter().next() {
-                                    *idx
-                                } else {
-                                    unreachable!()
-                                };
-                                idle_idxs_mut.remove(&idx);
-                                drop(idle_idxs_mut);
-                                _tx = txs.get(idx).map(|item| item.clone());
-                                break;
-                            };
-                        }
+            while let Some(task) = task_rx.next().await {
+                let mut _tx = None;
+                loop {
+                    if idle_idxs.read().is_empty() {
+                        //sleep ...
+                        PendingOnce::new(idle_waker.clone()).await;
+                    } else {
+                        //select ...
+                        let mut idle_idxs_mut = idle_idxs.write();
+                        let idx = if let Some(idx) = idle_idxs_mut.iter().next() {
+                            *idx
+                        } else {
+                            unreachable!()
+                        };
+                        idle_idxs_mut.remove(&idx);
+                        drop(idle_idxs_mut);
+                        _tx = txs.get(idx).cloned();
+                        break;
+                    };
+                }
 
-                        if let Err(_t) = _tx.unwrap().send(task).await {
-                            log::error!("send error ...");
-                            // task = t.into_inner();
-                        }
-                    }
-                    None => break,
+                if let Err(_t) = _tx.unwrap().send(task).await {
+                    log::error!("send error ...");
+                    // task = t.into_inner();
                 }
             }
         };

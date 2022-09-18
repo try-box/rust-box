@@ -193,22 +193,19 @@ impl<T: core::any::Any> std::error::Error for SendError<T> {}
 
 impl<T> SendError<T> {
     /// Returns `true` if this error is a result of the channel being full.
+    #[inline]
     pub fn is_full(&self) -> bool {
-        match self.kind {
-            SendErrorKind::Full => true,
-            _ => false,
-        }
+        matches!(self.kind, SendErrorKind::Full)
     }
 
     /// Returns `true` if this error is a result of the receiver being dropped.
+    #[inline]
     pub fn is_disconnected(&self) -> bool {
-        match self.kind {
-            SendErrorKind::Disconnected => true,
-            _ => false,
-        }
+        matches!(self.kind, SendErrorKind::Disconnected)
     }
 
     /// Returns the message that was attempted to be sent but failed.
+    #[inline]
     pub fn into_inner(self) -> T {
         self.val
     }
