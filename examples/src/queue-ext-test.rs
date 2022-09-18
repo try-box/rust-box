@@ -1,15 +1,14 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
+use futures::{AsyncWriteExt, FutureExt, SinkExt, stream, StreamExt};
+use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
 use std::collections::*;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-
-use futures::{AsyncWriteExt, FutureExt, SinkExt, stream, StreamExt};
-use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
 use tokio::task::spawn_local;
 
 fn main() {
