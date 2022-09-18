@@ -1,6 +1,7 @@
 [package]
 name = "stream-ext"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.38"
 license = "MIT OR Apache-2.0"
