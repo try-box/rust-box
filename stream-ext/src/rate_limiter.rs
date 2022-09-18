@@ -1,9 +1,9 @@
-use futures::FutureExt;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use futures::FutureExt;
 use leaky_bucket::{AcquireOwned, RateLimiter};
 
 use super::Limiter;

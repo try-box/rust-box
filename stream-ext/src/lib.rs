@@ -13,7 +13,6 @@ mod limiter;
 impl<T: ?Sized> LimiterExt for T where T: Stream {}
 
 pub trait LimiterExt: Stream {
-
     #[inline]
     fn limiter<L>(self, l: L) -> IntoLimiter<Self, L>
         where

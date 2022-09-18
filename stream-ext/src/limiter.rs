@@ -16,9 +16,9 @@ pub struct IntoLimiter<St, L> {
 }
 
 impl<St, L> fmt::Debug for IntoLimiter<St, L>
-where
-    St: fmt::Debug,
-    L: fmt::Debug,
+    where
+        St: fmt::Debug,
+        L: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("IntoLimiter")
@@ -36,9 +36,9 @@ impl<St, L> IntoLimiter<St, L> {
 }
 
 impl<St, L> FusedStream for IntoLimiter<St, L>
-where
-    St: FusedStream + Unpin,
-    L: Limiter + Unpin,
+    where
+        St: FusedStream + Unpin,
+        L: Limiter + Unpin,
 {
     #[inline]
     fn is_terminated(&self) -> bool {
