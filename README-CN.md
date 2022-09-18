@@ -16,7 +16,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   Streams 的扩展特征，提供各种方便的组合函数。
 * [`queue-ext`](queue-ext)
   队列的扩展特征，可将队列的pop()函数转换为Stream，push()函数转换为Sender。
-* [`tokio-executor`](tokio-executor)
+* [`task-executor`](task-executor)
   一个可控制并发执行任务数量的任务执行器。
 
 ## 使用
