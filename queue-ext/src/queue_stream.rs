@@ -1,9 +1,11 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::marker::PhantomData;
 use std::marker::Unpin;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::task::{Context, Poll};
 
 use futures::Stream;
@@ -20,6 +22,7 @@ pin_project! {
         #[pin]
         f: F,
         recv_task: Arc<AtomicWaker>,
+        parked_queue: Arc<Mutex<VecDeque<std::task::Waker>>>,
         _item: PhantomData<Item>,
     }
 }
@@ -35,6 +38,7 @@ impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
             q: self.q.clone(),
             f: self.f.clone(),
             recv_task: self.recv_task.clone(),
+            parked_queue: self.parked_queue.clone(),
             _item: PhantomData,
         }
     }
@@ -58,6 +62,7 @@ impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
             q,
             f,
             recv_task: Arc::new(AtomicWaker::new()),
+            parked_queue: Arc::new(Mutex::new(VecDeque::default())),
             _item: PhantomData,
         }
     }
@@ -65,8 +70,13 @@ impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
 
 impl<Q, Item, F> Waker for QueueStream<Q, Item, F> {
     #[inline]
-    fn wake(&self) {
+    fn rx_wake(&self) {
         self.recv_task.wake()
+    }
+
+    #[inline]
+    fn tx_park(&self, w: std::task::Waker) {
+        self.parked_queue.lock().unwrap().push_back(w);
     }
 }
 
@@ -81,7 +91,12 @@ impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
         let mut this = self.project();
         let f = this.f.as_mut();
         match f(this.q.as_mut(), ctx) {
-            Poll::Ready(msg) => Poll::Ready(msg),
+            Poll::Ready(msg) => {
+                if let Some(w) = this.parked_queue.lock().unwrap().pop_front() {
+                    w.wake();
+                }
+                Poll::Ready(msg)
+            }
             Poll::Pending => {
                 this.recv_task.register(ctx.waker());
                 f(this.q.as_mut(), ctx)

@@ -7,19 +7,19 @@ use futures::Stream;
 #[allow(unreachable_pub)]
 pub use self::queue_stream::QueueStream;
 #[allow(unreachable_pub)]
-pub use self::sender::Sender;
+pub use self::sender::{Action, Reply, Sender, SendError, TrySendError};
 
 mod queue_stream;
 mod sender;
 
 pub trait Waker {
-    fn wake(&self);
+    fn rx_wake(&self);
+    fn tx_park(&self, w: std::task::Waker);
 }
 
 impl<T: ?Sized> QueueExt for T {}
 
 pub trait QueueExt {
-
     #[inline]
     fn queue_stream<Item, F>(self, f: F) -> QueueStream<Self, Item, F>
         where
@@ -33,7 +33,7 @@ pub trait QueueExt {
     fn sender<Item, F, R>(self, f: F) -> Sender<Self, Item, F, R>
         where
             Self: Sized + Waker,
-            F: Fn(&mut Self, Item) -> R,
+            F: Fn(&mut Self, Action<Item>) -> Reply<R>,
     {
         Sender::new(self, f)
     }
