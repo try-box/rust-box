@@ -8,7 +8,7 @@ use tokio::{task::spawn, time::sleep};
 // };
 
 fn main() {
-    std::env::set_var("RUST_LOG", "tokio_executor=info,task_executor=info");
+    std::env::set_var("RUST_LOG", "task_executor=info,task_executor=info");
     env_logger::init();
     main_tokio();
     // main_tokio_group();
@@ -29,7 +29,7 @@ fn main_tokio() {
                 spawn(async move {
                     mailbox
                         .send(async move {
-                            // sleep(std::time::Duration::from_micros(1)).await;
+                            sleep(std::time::Duration::from_nanos(1)).await;
                         })
                         .await
                         .unwrap();
@@ -42,7 +42,7 @@ fn main_tokio() {
         });
 
         for i in 0..10 {
-            println!(
+            log::info!(
                 "{}  {:?} actives: {}, waitings: {}, completeds: {}, rate: {:?}",
                 i,
                 now.elapsed(),
@@ -58,7 +58,7 @@ fn main_tokio() {
 
         assert!(exec.completed_count() == MAX_TASK);
 
-        println!(
+        log::info!(
             "close {:?} actives: {}, waitings: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             exec.active_count(),

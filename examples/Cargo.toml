@@ -14,8 +14,8 @@ name = "queue-ext-test"
 path = "src/queue-ext-test.rs"
 
 [[bin]]
-name = "tokio-executor-test"
-path = "src/tokio-executor-test.rs"
+name = "task-executor-test"
+path = "src/task-executor-test.rs"
 
 [dependencies]
 rust-box = { path = "../", features = ["stream-ext-leaky-bucket", "stream-ext-governor", "task-executor-rate"] }
