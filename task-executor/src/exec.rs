@@ -118,14 +118,9 @@ impl<Item> Executor<Item>
         where
             Item: Future + Send,
     {
-        let active_count = self.active_count.clone();
-        let completed_count = self.completed_count.clone();
-        let waiting_count = self.waiting_count.clone();
-        #[cfg(feature = "rate")]
-            let rate_counter = self.rate_counter.clone();
+        let exec = self;
         let idle_waker = Arc::new(AtomicWaker::new());
-        let close_waker = self.close_waker.clone();
-        let is_closed = self.is_closed.clone();
+
         let channel = || {
             let rx = Arc::new(ArrayQueue::new(1)).queue_stream(|s, _| {
                 if s.is_empty() {
@@ -150,29 +145,23 @@ impl<Item> Executor<Item>
         let idle_idxs = Arc::new(RwLock::new(BTreeSet::new()));
         let mut txs = Vec::new();
         let mut rxs = Vec::new();
-        for i in 0..self.workers {
+        for i in 0..exec.workers {
             let (tx, mut rx) = channel();
-            let active_count = active_count.clone();
-            let completed_count = completed_count.clone();
-            let waiting_count = waiting_count.clone();
-            #[cfg(feature = "rate")]
-                let rate_counter = rate_counter.clone();
             let idle_waker = idle_waker.clone();
             let idle_idxs = idle_idxs.clone();
-            let close_waker = close_waker.clone();
-            let is_closed = is_closed.clone();
             idle_idxs.write().insert(i);
+            let exec = exec.clone();
             let rx_fut = async move {
                 loop {
                     match rx.next().await {
                         Some(task) => {
-                            active_count.inc();
-                            waiting_count.dec();
+                            exec.active_count.inc();
+                            exec.waiting_count.dec();
                             task.await;
-                            active_count.dec();
-                            completed_count.inc();
+                            exec.completed_count.inc();
+                            exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            rate_counter.write().update();
+                            exec.rate_counter.write().update();
                         }
                         None => break,
                     }
@@ -181,8 +170,8 @@ impl<Item> Executor<Item>
                         idle_idxs.write().insert(i);
                         idle_waker.wake();
                     }
-                    if is_closed.load(Ordering::SeqCst) && rx.is_empty() {
-                        close_waker.wake();
+                    if exec.is_closed.load(Ordering::SeqCst) && rx.is_empty() {
+                        exec.close_waker.wake();
                     }
                 }
             };
