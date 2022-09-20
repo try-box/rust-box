@@ -1,7 +1,5 @@
 # Task Executor
 
-[![GitHub Release](https://img.shields.io/github/release/tryor/task-executor?color=brightgreen)](https://github.com/tryor/task-executor/releases)
-
 [English](./README.md)  | 简体中文
 
 *Task Executor* 可控制并行执行数量的任务执行器。通常，普通异步任务直接使用Tokio或async-std执行即可；但是，某些特殊业务场景我们需要批量执行某一类型任务，

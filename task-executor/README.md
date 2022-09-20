@@ -1,7 +1,5 @@
 # Task Executor
 
-[![GitHub Release](https://img.shields.io/github/release/tryor/task-executor?color=brightgreen)](https://github.com/tryor/task-executor/releases)
-
 English | [简体中文](./README-CN.md)
 
 *Task Executor* Task executors that control the number of parallel executions. Usually, ordinary asynchronous tasks can be 
