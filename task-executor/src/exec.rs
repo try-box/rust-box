@@ -28,8 +28,8 @@ pub struct Executor {
     completed_count: Counter,
     #[cfg(feature = "rate")]
     rate_counter: Arc<RwLock<DiscreteRateCounter>>,
-    close_waker: Arc<AtomicWaker>,
-    is_closing: Arc<AtomicBool>,
+    flush_waker: Arc<AtomicWaker>,
+    is_flushing: Arc<AtomicBool>,
 }
 
 impl Clone for Executor {
@@ -44,8 +44,8 @@ impl Clone for Executor {
             completed_count: self.completed_count.clone(),
             #[cfg(feature = "rate")]
             rate_counter: self.rate_counter.clone(),
-            close_waker: self.close_waker.clone(),
-            is_closing: self.is_closing.clone(),
+            flush_waker: self.flush_waker.clone(),
+            is_flushing: self.is_flushing.clone(),
         }
     }
 }
@@ -63,8 +63,8 @@ impl Executor {
             completed_count: Counter::new(),
             #[cfg(feature = "rate")]
             rate_counter: Arc::new(RwLock::new(DiscreteRateCounter::new(100))),
-            close_waker: Arc::new(AtomicWaker::new()),
-            is_closing: Arc::new(AtomicBool::new(false)),
+            flush_waker: Arc::new(AtomicWaker::new()),
+            is_flushing: Arc::new(AtomicBool::new(false)),
         };
         let runner = exec.clone().run(rx);
         (exec, runner)
@@ -76,7 +76,7 @@ impl Executor {
             T: Future + Send + 'static,
             T::Output: Send + 'static,
     {
-        if self.is_closed() || self.is_closing() {
+        if self.is_closed() || self.is_flushing() {
             return Err(Error::TrySendError(ErrorType::Closed(Some(task))));
         }
         if self.is_full() {
@@ -107,14 +107,29 @@ impl Executor {
         assert_future::<Result<(), _>, _>(fut)
     }
 
+
+    //
     #[inline]
-    pub fn close(&mut self) -> Close<'_, mpsc::Sender<TaskType>> {
-        self.is_closing.store(true, Ordering::SeqCst);
-        Close::new(
-            &mut self.tx,
+    pub fn flush(&self) -> Flush {
+        self.is_flushing.store(true, Ordering::SeqCst);
+        Flush::new(
+            self.tx.clone(),
             self.waiting_count.clone(),
             self.active_count.clone(),
-            self.close_waker.clone(),
+            self.is_flushing.clone(),
+            self.flush_waker.clone(),
+        )
+    }
+
+    #[inline]
+    pub fn close(&self) -> Close {
+        self.is_flushing.store(true, Ordering::SeqCst);
+        Close::new(
+            self.tx.clone(),
+            self.waiting_count.clone(),
+            self.active_count.clone(),
+            self.is_flushing.clone(),
+            self.flush_waker.clone(),
         )
     }
 
@@ -155,8 +170,8 @@ impl Executor {
     }
 
     #[inline]
-    pub fn is_closing(&self) -> bool {
-        self.is_closing.load(Ordering::SeqCst)
+    pub fn is_flushing(&self) -> bool {
+        self.is_flushing.load(Ordering::SeqCst)
     }
 
     async fn run(self, mut task_rx: mpsc::Receiver<TaskType>) {
@@ -206,8 +221,8 @@ impl Executor {
                         idle_waker.wake();
                     }
 
-                    if exec.is_closing() && rx.is_empty() {
-                        exec.close_waker.wake();
+                    if exec.is_flushing() && rx.is_empty() {
+                        exec.flush_waker.wake();
                     }
                 }
             };
@@ -336,33 +351,80 @@ impl Future for PendingOnce {
     }
 }
 
-pub struct Close<'a, Si: ?Sized> {
-    sink: &'a mut Si,
+
+pub struct Flush {
+    sink: mpsc::Sender<TaskType>,
     waiting_count: Counter,
     active_count: Counter,
+    is_flushing: Arc<AtomicBool>,
     w: Arc<AtomicWaker>,
 }
 
-impl<Si: Unpin + ?Sized> Unpin for Close<'_, Si> {}
+impl Unpin for Flush {}
 
-impl<'a, Si: Sink<TaskType> + Unpin + ?Sized> Close<'a, Si> {
+impl Flush {
     fn new(
-        sink: &'a mut Si,
+        sink: mpsc::Sender<TaskType>,
         waiting_count: Counter,
         active_count: Counter,
+        is_flushing: Arc<AtomicBool>,
         w: Arc<AtomicWaker>,
     ) -> Self {
         Self {
             sink,
             waiting_count,
             active_count,
+            is_flushing,
             w,
         }
     }
 }
 
-impl<Si: Sink<TaskType> + Unpin + ?Sized> Future for Close<'_, Si> {
-    type Output = Result<(), Si::Error>;
+impl Future for Flush {
+    type Output = Result<(), mpsc::SendError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.sink).poll_flush(cx))?;
+        if self.waiting_count.value() > 0 || self.active_count.value() > 0 {
+            self.w.register(cx.waker());
+            Poll::Pending
+        } else {
+            self.is_flushing.store(false,Ordering::SeqCst);
+            Poll::Ready(Ok(()))
+        }
+    }
+}
+
+pub struct Close {
+    sink: mpsc::Sender<TaskType>,
+    waiting_count: Counter,
+    active_count: Counter,
+    is_flushing: Arc<AtomicBool>,
+    w: Arc<AtomicWaker>,
+}
+
+impl Unpin for Close {}
+
+impl Close {
+    fn new(
+        sink: mpsc::Sender<TaskType>,
+        waiting_count: Counter,
+        active_count: Counter,
+        is_flushing: Arc<AtomicBool>,
+        w: Arc<AtomicWaker>,
+    ) -> Self {
+        Self {
+            sink,
+            waiting_count,
+            active_count,
+            is_flushing,
+            w,
+        }
+    }
+}
+
+impl Future for Close {
+    type Output = Result<(), mpsc::SendError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.sink).poll_close(cx))?;
@@ -370,6 +432,7 @@ impl<Si: Sink<TaskType> + Unpin + ?Sized> Future for Close<'_, Si> {
             self.w.register(cx.waker());
             Poll::Pending
         } else {
+            self.is_flushing.store(false,Ordering::SeqCst);
             Poll::Ready(Ok(()))
         }
     }
