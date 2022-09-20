@@ -1,5 +1,8 @@
-use futures::SinkExt;
-use rust_box::task_executor::Builder;
+#![allow(unused_must_use)]
+#![allow(dead_code)]
+
+use rust_box::task_executor::{Builder, init_default, SpawnExt};
+// use tokio::{task::spawn_local as spawn, time::sleep};
 use tokio::{task::spawn, time::sleep};
 
 // use async_std::{
@@ -8,31 +11,72 @@ use tokio::{task::spawn, time::sleep};
 // };
 
 fn main() {
-    std::env::set_var("RUST_LOG", "task_executor=info,task_executor=info");
+    std::env::set_var("RUST_LOG", "task_executor=info,test_executor_ext=info");
     env_logger::init();
-    main_tokio();
+    test_executor_ext();
+    test_executor();
     // main_tokio_group();
 }
 
-fn main_tokio() {
-    const MAX_TASK: isize = 100_000;
+
+fn test_executor_ext() {
+
+    //init default executor
+    let runner = init_default();
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        spawn(async {
+            //start executor
+            runner.await;
+        });
+
+        //execute future ...
+        let res = async {
+            log::info!("execute future ...");
+        }.spawn().await;
+        assert_eq!(res.ok(), Some(()));
+
+        //execute future and return result...
+        let res = async {
+            3 + 2 - 5 + 100
+        }.spawn().result().await;
+        assert_eq!(res.as_ref().ok(), Some(&100));
+        log::info!("execute and result is {:?}", res.ok());
+
+        sleep(std::time::Duration::from_millis(1000)).await;
+    });
+}
+
+fn test_executor() {
+    const MAX_TASKS: isize = 100_000;
     let now = std::time::Instant::now();
-
-    let (mut exec, runner) = Builder::default().workers(100).queue_max(10_000).build();
-
-    let mailbox = exec.mailbox();
-
+    let (mut exec, runner) = Builder::default().workers(150).queue_max(1000_000).build();
+    let mailbox = exec.clone();
     let runner = async move {
         spawn(async move {
-            for _i in 0..MAX_TASK {
+            for i in 0..MAX_TASKS {
                 let mut mailbox = mailbox.clone();
                 spawn(async move {
-                    mailbox
-                        .send(async move {
-                            sleep(std::time::Duration::from_nanos(1)).await;
-                        })
-                        .await
-                        .unwrap();
+
+                    //try send
+                    let _res = mailbox
+                        .try_spawn(async {
+                            // sleep(std::time::Duration::from_micros(1)).await;
+                        });
+
+                    //send ...
+                    let _res = mailbox
+                        .spawn(async move {
+                            // sleep(std::time::Duration::from_micros(1)).await;
+                            i
+                        }).await;
+
+                    //send and wait reply
+                    let _res = mailbox.spawn(async move {
+                        // sleep(std::time::Duration::from_micros(1)).await;
+                        i * i + 100
+                    }).result().await;
+
+                    // log::info!("calc: {} * {} + 100 = {:?}", i, i, res.ok());
                 });
             }
         });
@@ -43,11 +87,14 @@ fn main_tokio() {
 
         for i in 0..10 {
             log::info!(
-                "{}  {:?} actives: {}, waitings: {}, completeds: {}, rate: {:?}",
+                "{}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, closing: {}, completeds: {}, rate: {:?}",
                 i,
                 now.elapsed(),
                 exec.active_count(),
                 exec.waiting_count(),
+                exec.is_full(),
+                exec.is_closed(),
+                exec.is_closing(),
                 exec.completed_count(),
                 exec.rate()
             );
@@ -56,13 +103,15 @@ fn main_tokio() {
 
         exec.close().await.unwrap();
 
-        assert!(exec.completed_count() == MAX_TASK);
+        assert!(exec.completed_count() == MAX_TASKS * 3);
 
         log::info!(
-            "close {:?} actives: {}, waitings: {}, completeds: {}, rate: {:?}",
+            "close {:?} actives: {}, waitings: {}, is_full: {},  is_closed: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             exec.active_count(),
             exec.waiting_count(),
+            exec.is_full(),
+            exec.is_closed(),
             exec.completed_count(),
             exec.rate()
         );
@@ -72,84 +121,3 @@ fn main_tokio() {
     tokio::runtime::Runtime::new().unwrap().block_on(runner);
     // tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), runner);
 }
-
-// fn main_tokio_group() {
-//
-//     // use tokio::task::{spawn_local as spawn};
-//
-//     let runner = async move {
-//         let now = std::time::Instant::now();
-//         let send_count = Arc::new(AtomicIsize::new(0));
-//         let send_count1 = send_count.clone();
-//         let send_error_count = Arc::new(AtomicIsize::new(0));
-//         let send_error_count1 = send_error_count.clone();
-//         let waiting_count = Arc::new(AtomicIsize::new(0));
-//         let waiting_count1 = waiting_count.clone();
-//         {
-//             // let (task_tx, task_rx) = mpsc::channel::<Box<dyn Future<Output=i32> + Send + Unpin>>(100);
-//             let (task_tx, task_rx) = mpsc::channel::<TaskType>(100);
-//
-//             // let task_tx = task_tx.clone().with(|x|{
-//             //     println!("xxx");
-//             //     ok::<_, SendError>(x)
-//             // });
-//
-//             //+ Send + 'static + Unpin
-//             let exec = Builder::default().workers(100).build(task_tx.clone(), task_rx); //.with_group::<String, TaskType>(100);
-//
-//             let mut mailbox = exec.mailbox();
-//
-//             // let exec1 = exec.;
-//
-//             spawn(async move {
-//                 // let res = mailbox.send(async {println!("{}", 123)}).await.unwrap();
-//                 // let res = exec1.send("test".into(), async {1}).await;
-//
-//
-//                 // let mut mailbox2 = mailbox.clone();
-//                 for i in 0..10000 {
-//                     // let send_count2 = send_count1.clone();
-//                     // let mut mailbox3 = mailbox.clone();
-//                     // let waiting_count2 = waiting_count1.clone();
-//
-//                     // //send ...
-//                     // let res = mailbox2.clone().send(async move {
-//                     //     send_count2.fetch_add(1, Ordering::SeqCst);
-//                     //     // log::info!("{:?}", i);
-//                     //     sleep(Duration::from_millis(1)).await;
-//                     // }).await;
-//
-//                     //call
-//
-//                     // spawn(async move {
-//                     //     //let waiting_count3 = waiting_count2.clone();
-//                     //     send_count2.fetch_add(1, Ordering::SeqCst);
-//                     //     waiting_count2.fetch_add(1, Ordering::SeqCst);
-//                     //     let (rs_tx, rs_rx) = oneshot::channel();
-//                     //     let task = async move {
-//                     //         sleep(Duration::from_millis(100)).await;
-//                     //         if let Err(_e) = rs_tx.send(1) {
-//                     //             log::warn!("send result failed");
-//                     //         }
-//                     //     };
-//                     //     let res = mailbox3.send(task).await;
-//                     //     let res = rs_rx.await;
-//                     //     waiting_count2.fetch_sub(1, Ordering::SeqCst);
-//                     // });
-//                 }
-//             });
-//             // sleep(Duration::from_millis(1000)).await;
-//
-//             for i in 0..20 {
-//                 log::info!("local {}  {:?} active_count: {}, waiting_count: {}, completed_count: {}, send_count: {}, send_error_count: {}, exec_rate: {:?}",
-//                  i, now.elapsed(), exec.active_count(), waiting_count.load(Ordering::SeqCst), exec.completed_count(),
-//             send_count.load(Ordering::SeqCst), send_error_count.load(Ordering::SeqCst), exec.rate().await);
-//
-//                 sleep(std::time::Duration::from_millis(1000)).await;
-//             }
-//         }
-//         sleep(Duration::from_millis(1000)).await;
-//     };
-//     // tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), runner);
-//     tokio::runtime::Runtime::new().unwrap().block_on(runner);
-// }
