@@ -1,85 +1,115 @@
-use std::collections::BTreeSet;
-use std::fmt::Debug;
+use std::collections::HashSet;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::marker::Unpin;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 
-use crossbeam_queue::ArrayQueue;
 use futures::{ready, Sink, SinkExt, StreamExt};
 use futures::channel::mpsc;
 use futures::task::AtomicWaker;
 use parking_lot::RwLock;
-use pin_project_lite::pin_project;
 #[cfg(feature = "rate")]
 use update_rate::{DiscreteRateCounter, RateCounter};
 
 use queue_ext::{Action, QueueExt, Reply};
 
-use super::Counter;
+use super::{assert_future, Counter, Error, ErrorType, Spawner};
 
-pub struct Executor<Item> {
-    tx: mpsc::Sender<Item>,
+type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
+
+pub struct Executor {
+    pub(crate) tx: mpsc::Sender<TaskType>,
     workers: usize,
+    queue_max: isize,
     active_count: Counter,
-    waiting_count: Counter,
+    pub(crate) waiting_count: Counter,
     completed_count: Counter,
     #[cfg(feature = "rate")]
     rate_counter: Arc<RwLock<DiscreteRateCounter>>,
     close_waker: Arc<AtomicWaker>,
-    is_closed: Arc<AtomicBool>,
+    is_closing: Arc<AtomicBool>,
 }
 
-impl<Item> Clone for Executor<Item> {
+impl Clone for Executor {
     #[inline]
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
             workers: self.workers,
+            queue_max: self.queue_max,
             active_count: self.active_count.clone(),
             waiting_count: self.waiting_count.clone(),
             completed_count: self.completed_count.clone(),
             #[cfg(feature = "rate")]
             rate_counter: self.rate_counter.clone(),
             close_waker: self.close_waker.clone(),
-            is_closed: self.is_closed.clone(),
+            is_closing: self.is_closing.clone(),
         }
     }
 }
 
-impl<Item> Executor<Item>
-    where
-        Item: Future + Send + 'static,
-{
+impl Executor {
     #[inline]
     pub(crate) fn new(workers: usize, queue_max: usize) -> (Self, impl Future<Output=()>) {
         let (tx, rx) = mpsc::channel(queue_max);
         let exec = Self {
             tx,
             workers,
+            queue_max: queue_max as isize,
             active_count: Counter::new(),
             waiting_count: Counter::new(),
             completed_count: Counter::new(),
             #[cfg(feature = "rate")]
             rate_counter: Arc::new(RwLock::new(DiscreteRateCounter::new(100))),
             close_waker: Arc::new(AtomicWaker::new()),
-            is_closed: Arc::new(AtomicBool::new(false)),
+            is_closing: Arc::new(AtomicBool::new(false)),
         };
         let runner = exec.clone().run(rx);
         (exec, runner)
     }
 
     #[inline]
-    pub fn mailbox(&self) -> Mailbox<mpsc::Sender<Item>, Item> {
-        Mailbox::new(self.tx.clone(), self.waiting_count.clone())
+    pub fn try_spawn<T>(&self, task: T) -> Result<(), Error<T>>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        if self.is_closed() || self.is_closing() {
+            return Err(Error::TrySendError(ErrorType::Closed(Some(task))));
+        }
+        if self.is_full() {
+            return Err(Error::TrySendError(ErrorType::Full(Some(task))));
+        }
+        let waiting_count = self.waiting_count.clone();
+        let task = async move {
+            waiting_count.dec();
+            let _ = task.await;
+        };
+        self.waiting_count.inc();
+
+        if let Err(_e) = self.tx.clone().try_send(Box::new(Box::pin(task))) {
+            self.waiting_count.dec();
+            Err(Error::TrySendError(ErrorType::Closed(None)))
+        } else {
+            Ok(())
+        }
     }
 
     #[inline]
-    pub fn close(&mut self) -> Close<'_, mpsc::Sender<Item>, Item> {
-        self.is_closed.store(true, Ordering::SeqCst);
+    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        let fut = Spawner::new(self, msg);
+        assert_future::<Result<(), _>, _>(fut)
+    }
+
+    #[inline]
+    pub fn close(&mut self) -> Close<'_, mpsc::Sender<TaskType>> {
+        self.is_closing.store(true, Ordering::SeqCst);
         Close::new(
             &mut self.tx,
             self.waiting_count.clone(),
@@ -114,32 +144,33 @@ impl<Item> Executor<Item>
         self.rate_counter.read().rate()
     }
 
-    async fn run(self, mut task_rx: mpsc::Receiver<Item>)
-        where
-            Item: Future + Send,
-    {
-        let active_count = self.active_count.clone();
-        let completed_count = self.completed_count.clone();
-        let waiting_count = self.waiting_count.clone();
-        #[cfg(feature = "rate")]
-            let rate_counter = self.rate_counter.clone();
+    #[inline]
+    pub fn is_full(&self) -> bool {
+        self.waiting_count() >= self.queue_max
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    #[inline]
+    pub fn is_closing(&self) -> bool {
+        self.is_closing.load(Ordering::SeqCst)
+    }
+
+    async fn run(self, mut task_rx: mpsc::Receiver<TaskType>) {
+        let exec = self;
         let idle_waker = Arc::new(AtomicWaker::new());
-        let close_waker = self.close_waker.clone();
-        let is_closed = self.is_closed.clone();
+
         let channel = || {
-            let rx = Arc::new(ArrayQueue::new(1)).queue_stream(|s, _| {
-                if s.is_empty() {
-                    Poll::Pending
-                } else {
-                    match s.pop() {
-                        Some(m) => Poll::Ready(Some(m)),
-                        None => Poll::Pending,
-                    }
-                }
+            let rx = OneValue::new().queue_stream(|s, _| match s.take() {
+                None => Poll::Pending,
+                Some(m) => Poll::Ready(Some(m)),
             });
 
             let tx = rx.clone().sender(|s, action| match action {
-                Action::Send(item) => Reply::Send(s.push(item)),
+                Action::Send(item) => Reply::Send(s.set(item)),
                 Action::IsFull => Reply::IsFull(s.is_full()),
                 Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
             });
@@ -147,42 +178,36 @@ impl<Item> Executor<Item>
             (tx, rx)
         };
 
-        let idle_idxs = Arc::new(RwLock::new(BTreeSet::new()));
+        let idle_idxs = IndexSet::new();
         let mut txs = Vec::new();
         let mut rxs = Vec::new();
-        for i in 0..self.workers {
+        for i in 0..exec.workers {
             let (tx, mut rx) = channel();
-            let active_count = active_count.clone();
-            let completed_count = completed_count.clone();
-            let waiting_count = waiting_count.clone();
-            #[cfg(feature = "rate")]
-                let rate_counter = rate_counter.clone();
             let idle_waker = idle_waker.clone();
             let idle_idxs = idle_idxs.clone();
-            let close_waker = close_waker.clone();
-            let is_closed = is_closed.clone();
-            idle_idxs.write().insert(i);
+            idle_idxs.insert(i);
+            let exec = exec.clone();
             let rx_fut = async move {
                 loop {
                     match rx.next().await {
                         Some(task) => {
-                            active_count.inc();
-                            waiting_count.dec();
+                            exec.active_count.inc();
                             task.await;
-                            active_count.dec();
-                            completed_count.inc();
+                            exec.completed_count.inc();
+                            exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            rate_counter.write().update();
+                            exec.rate_counter.write().update();
                         }
                         None => break,
                     }
 
                     if !rx.is_full() {
-                        idle_idxs.write().insert(i);
+                        idle_idxs.insert(i);
                         idle_waker.wake();
                     }
-                    if is_closed.load(Ordering::SeqCst) && rx.is_empty() {
-                        close_waker.wake();
+
+                    if exec.is_closing() && rx.is_empty() {
+                        exec.close_waker.wake();
                     }
                 }
             };
@@ -193,29 +218,20 @@ impl<Item> Executor<Item>
 
         let tasks_bus = async move {
             while let Some(task) = task_rx.next().await {
-                let mut _tx = None;
                 loop {
-                    if idle_idxs.read().is_empty() {
+                    if idle_idxs.is_empty() {
                         //sleep ...
                         PendingOnce::new(idle_waker.clone()).await;
-                    } else {
+                    } else if let Some(idx) = idle_idxs.pop() {
                         //select ...
-                        let mut idle_idxs_mut = idle_idxs.write();
-                        let idx = if let Some(idx) = idle_idxs_mut.iter().next() {
-                            *idx
-                        } else {
-                            unreachable!()
-                        };
-                        idle_idxs_mut.remove(&idx);
-                        drop(idle_idxs_mut);
-                        _tx = txs.get(idx).cloned();
+                        if let Some(tx) = txs.get_mut(idx) {
+                            if let Err(_t) = tx.send(task).await {
+                                log::error!("send error ...");
+                                // task = t.into_inner();
+                            }
+                        }
                         break;
                     };
-                }
-
-                if let Err(_t) = _tx.unwrap().send(task).await {
-                    log::error!("send error ...");
-                    // task = t.into_inner();
                 }
             }
         };
@@ -225,64 +241,73 @@ impl<Item> Executor<Item>
     }
 }
 
-pin_project! {
-    #[derive(Debug)]
-    #[must_use = "sinks do nothing unless polled"]
-    pub struct Mailbox<Si, Item> {
-        #[pin]
-        sink: Si,
-        waiting_count: Counter,
-        _item: std::marker::PhantomData<Item>,
-    }
-}
+#[derive(Clone)]
+struct IndexSet(Arc<RwLock<HashSet<usize>>>);
 
-impl<Si, Item> Clone for Mailbox<Si, Item>
-    where
-        Si: Clone,
-{
+impl IndexSet {
     #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            sink: self.sink.clone(),
-            waiting_count: self.waiting_count.clone(),
-            _item: std::marker::PhantomData,
+    fn new() -> Self {
+        Self(Arc::new(RwLock::new(HashSet::new())))
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        self.0.read().len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.read().is_empty()
+    }
+
+    #[inline]
+    fn insert(&self, v: usize) {
+        self.0.write().insert(v);
+    }
+
+    #[inline]
+    fn pop(&self) -> Option<usize> {
+        let mut set = self.0.write();
+        if let Some(idx) = set.iter().next().copied() {
+            set.remove(&idx);
+            Some(idx)
+        } else {
+            None
         }
     }
 }
 
-impl<Si: Sink<Item>, Item> Mailbox<Si, Item> {
-    fn new(sink: Si, waiting_count: Counter) -> Self {
-        Self {
-            sink,
-            waiting_count,
-            _item: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Clone)]
+struct OneValue(Arc<RwLock<Option<TaskType>>>);
 
-impl<Si, Item> Sink<Item> for Mailbox<Si, Item>
-    where
-        Si: Sink<Item>,
-{
-    type Error = Si::Error;
+unsafe impl Sync for OneValue {}
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().sink.poll_ready(cx)
+unsafe impl Send for OneValue {}
+
+impl OneValue {
+    #[inline]
+    fn new() -> Self {
+        Self(Arc::new(RwLock::new(None)))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Item) -> Result<(), Self::Error> {
-        let this = self.project();
-        this.sink.start_send(item)?;
-        this.waiting_count.inc();
-        Ok(())
+    #[inline]
+    fn set(&self, val: TaskType) -> Option<TaskType> {
+        self.0.write().replace(val)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().sink.poll_flush(cx)
+    #[inline]
+    fn take(&self) -> Option<TaskType> {
+        self.0.write().take()
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().sink.poll_close(cx)
+    #[inline]
+    fn is_full(&self) -> bool {
+        self.0.read().is_some()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.read().is_none()
     }
 }
 
@@ -311,17 +336,16 @@ impl Future for PendingOnce {
     }
 }
 
-pub struct Close<'a, Si: ?Sized, Item> {
+pub struct Close<'a, Si: ?Sized> {
     sink: &'a mut Si,
     waiting_count: Counter,
     active_count: Counter,
     w: Arc<AtomicWaker>,
-    _phantom: PhantomData<fn(Item)>,
 }
 
-impl<Si: Unpin + ?Sized, Item> Unpin for Close<'_, Si, Item> {}
+impl<Si: Unpin + ?Sized> Unpin for Close<'_, Si> {}
 
-impl<'a, Si: Sink<Item> + Unpin + ?Sized, Item> Close<'a, Si, Item> {
+impl<'a, Si: Sink<TaskType> + Unpin + ?Sized> Close<'a, Si> {
     fn new(
         sink: &'a mut Si,
         waiting_count: Counter,
@@ -333,12 +357,11 @@ impl<'a, Si: Sink<Item> + Unpin + ?Sized, Item> Close<'a, Si, Item> {
             waiting_count,
             active_count,
             w,
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<Si: Sink<Item> + Unpin + ?Sized, Item> Future for Close<'_, Si, Item> {
+impl<Si: Sink<TaskType> + Unpin + ?Sized> Future for Close<'_, Si> {
     type Output = Result<(), Si::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -350,4 +373,18 @@ impl<Si: Sink<Item> + Unpin + ?Sized, Item> Future for Close<'_, Si, Item> {
             Poll::Ready(Ok(()))
         }
     }
+}
+
+#[test]
+fn test_index_set() {
+    let set = IndexSet::new();
+    set.insert(1);
+    set.insert(10);
+    set.insert(100);
+    assert_eq!(set.len(), 3);
+    assert!(matches!(set.pop(), Some(1) | Some(10) | Some(100)));
+    assert_eq!(set.len(), 2);
+    set.pop();
+    set.pop();
+    assert_eq!(set.len(), 0);
 }
