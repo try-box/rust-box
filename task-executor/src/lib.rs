@@ -12,6 +12,22 @@ mod spawner;
 impl<T: ?Sized> SpawnExt for T where T: futures::Future {}
 
 pub trait SpawnExt: futures::Future {
+
+    fn spawn(self, exec: &Executor) -> Spawner<Self>
+        where
+            Self: Sized + Send + 'static,
+            Self::Output: Send + 'static,
+    {
+        let f = Spawner::new(exec, self);
+        assert_future::<_, _>(f)
+    }
+
+}
+
+impl<T: ?Sized> SpawnDefaultExt for T where T: futures::Future {}
+
+pub trait SpawnDefaultExt: futures::Future {
+
     fn spawn(self) -> Spawner<'static, Self>
         where
             Self: Sized + Send + 'static,
@@ -20,6 +36,7 @@ pub trait SpawnExt: futures::Future {
         let f = Spawner::new(default(), self);
         assert_future::<_, _>(f)
     }
+
 }
 
 pub struct Builder {

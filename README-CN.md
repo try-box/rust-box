@@ -32,7 +32,7 @@ rust-box = "0.2"
 
 - [queue-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/queue-ext-test.rs)
 - [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
-- [tokio-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/tokio-executor-test.rs)
+- [task-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-executor-test.rs)
 
 ## License
 

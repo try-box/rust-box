@@ -22,6 +22,12 @@ impl<'a, Item> Spawner<'a, Item> {
         }
     }
 
+    // #[inline]
+    // pub fn exec(mut self, exec: &'a Executor) -> Self {
+    //     self.sink = exec;
+    //     self
+    // }
+
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
         where
@@ -29,7 +35,7 @@ impl<'a, Item> Spawner<'a, Item> {
             Item::Output: Send + 'static,
     {
         let task = self.item.take().expect("polled Feed after completion");
-        if self.sink.is_closed() || self.sink.is_closing() {
+        if self.sink.is_closed() {
             return Err(Error::SendError(ErrorType::Closed(Some(task))));
         }
 
@@ -62,7 +68,7 @@ impl<Item> Future for Spawner<'_, Item>
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let task = this.item.take().expect("polled Feed after completion");
-        if this.sink.is_closed() || this.sink.is_closing() {
+        if this.sink.is_closed() {
             return Poll::Ready(Err(Error::SendError(ErrorType::Closed(Some(task)))));
         }
         let mut tx = this.sink.tx.clone();
