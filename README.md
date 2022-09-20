@@ -17,7 +17,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 * [`queue-ext`](queue-ext)
   The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to
   Sender.
-* [`tokio-executor`](tokio-executor)
+* [`task-executor`](task-executor)
   A task executor that controls the number of concurrently executing tasks.
 
 ## Usage
@@ -33,7 +33,7 @@ rust-box = "0.2"
 
 - [queue-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/queue-ext-test.rs)
 - [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
-- [tokio-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/tokio-executor-test.rs)
+- [task-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-executor-test.rs)
 
 ## License
 
