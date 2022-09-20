@@ -129,7 +129,6 @@ impl<S, Item, F, R> Sink<Item> for Sender<S, Item, F, R>
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        println!("Sender poll_close ...");
         let mut this = self.project();
         match (this.f)(&mut this.s, Action::IsEmpty) {
             Reply::IsEmpty(true) => Poll::Ready(Ok(())),
@@ -162,6 +161,24 @@ pub type TrySendError<T> = SendError<T>;
 pub struct SendError<T> {
     kind: SendErrorKind,
     val: T,
+}
+
+impl<T> SendError<T> {
+    #[inline]
+    pub fn full(val: T) -> Self {
+        SendError {
+            kind: SendErrorKind::Full,
+            val,
+        }
+    }
+
+    #[inline]
+    pub fn disconnected(val: T) -> Self {
+        SendError {
+            kind: SendErrorKind::Disconnected,
+            val,
+        }
+    }
 }
 
 impl<T> fmt::Debug for SendError<T> {
