@@ -1,28 +1,102 @@
 #![allow(unused_must_use)]
 #![allow(dead_code)]
 
-use rust_box::task_executor::{Builder, init_default, SpawnExt};
-// use tokio::{task::spawn_local as spawn, time::sleep};
-use tokio::{task::spawn, time::sleep};
-
-// use async_std::{
-//     future::timeout,
-//     task::{sleep, spawn},
-// };
 
 fn main() {
     std::env::set_var("RUST_LOG", "task_executor=info,test_executor_ext=info");
     env_logger::init();
-    test_executor_ext();
-    test_executor();
-    // main_tokio_group();
+
+    test_quick_start();
+    test_return_result();
+    // test_executor_async_std();
+    // test_executor_ext();
+    // test_executor();
+
 }
 
 
-fn test_executor_ext() {
+//quick start
+fn test_quick_start() {
+    use async_std::task::spawn;
+    use rust_box::task_executor::{init_default, default, SpawnDefaultExt};
 
+    let task_runner = init_default();
+    let global = async move{
+        spawn(async {
+            //start executor
+            task_runner.await;
+        });
+        //execute future ...
+        let _ = async {
+            println!("hello world!");
+        }.spawn().await;
+
+        default().flush().await;
+    };
+    async_std::task::block_on(global);
+}
+
+fn test_return_result() {
+    use async_std::task::spawn;
+    use rust_box::task_executor::{Builder, SpawnExt};
+    let (exec, task_runner) = Builder::default().workers(10).queue_max(100).build();
+    let global = async move{
+        spawn(async {
+            //start executor
+            task_runner.await;
+        });
+        //execute future and return result...
+        let res = async {
+            "hello world!"
+        }.spawn(&exec).result().await;
+        println!("return result: {:?}", res.ok());
+
+        exec.flush().await;
+    };
+    async_std::task::block_on(global);
+}
+
+
+fn test_executor_async_std() {
+    use async_std::{
+        task::spawn,
+        task::sleep
+    };
+
+    //quick start
+    use rust_box::task_executor::{init_default, default, SpawnDefaultExt};
+    let task_runner = init_default();
+    let global = async move{
+
+        spawn(async {
+            //start executor
+            task_runner.await;
+        });
+
+        //execute future ...
+        let _ = async {
+            println!("hello world!");
+        }.spawn().await;
+
+        default().flush().await;
+
+        //execute future ...
+        let res = async {
+            "hello world!"
+        }.spawn().result().await;
+        println!("{:?}", res.ok());
+
+        default().flush().await;
+    };
+    async_std::task::block_on(global);
+}
+
+fn test_executor_ext() {
+    use tokio::{task::spawn, time::sleep};
+    use rust_box::task_executor::{Builder, set_default, default, SpawnDefaultExt};
     //init default executor
-    let runner = init_default();
+    let (exec, runner) = Builder::default().workers(100).queue_max(1000).build();
+    set_default(exec);
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         spawn(async {
             //start executor
@@ -42,14 +116,16 @@ fn test_executor_ext() {
         assert_eq!(res.as_ref().ok(), Some(&100));
         log::info!("execute and result is {:?}", res.ok());
 
-        sleep(std::time::Duration::from_millis(1000)).await;
+        default().flush().await;
     });
 }
 
 fn test_executor() {
+    use tokio::{task::spawn, time::sleep};
+    use rust_box::task_executor::Builder;
     const MAX_TASKS: isize = 100_000;
     let now = std::time::Instant::now();
-    let (mut exec, runner) = Builder::default().workers(150).queue_max(1000_000).build();
+    let (exec, runner) = Builder::default().workers(150).queue_max(1000).build();
     let mailbox = exec.clone();
     let runner = async move {
         spawn(async move {
@@ -57,22 +133,22 @@ fn test_executor() {
                 let mut mailbox = mailbox.clone();
                 spawn(async move {
 
-                    //try send
-                    let _res = mailbox
-                        .try_spawn(async {
-                            // sleep(std::time::Duration::from_micros(1)).await;
-                        });
+                    // //try send
+                    // let _res = mailbox
+                    //     .try_spawn(async {
+                    //         // sleep(std::time::Duration::from_micros(1)).await;
+                    //     });
 
                     //send ...
                     let _res = mailbox
                         .spawn(async move {
-                            // sleep(std::time::Duration::from_micros(1)).await;
+                            sleep(std::time::Duration::from_micros(1)).await;
                             i
                         }).await;
 
                     //send and wait reply
                     let _res = mailbox.spawn(async move {
-                        // sleep(std::time::Duration::from_micros(1)).await;
+                        sleep(std::time::Duration::from_micros(1)).await;
                         i * i + 100
                     }).result().await;
 
@@ -87,31 +163,32 @@ fn test_executor() {
 
         for i in 0..10 {
             log::info!(
-                "{}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, closing: {}, completeds: {}, rate: {:?}",
+                "{}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                 i,
                 now.elapsed(),
                 exec.active_count(),
                 exec.waiting_count(),
                 exec.is_full(),
                 exec.is_closed(),
-                exec.is_closing(),
+                exec.is_flushing(),
                 exec.completed_count(),
                 exec.rate()
             );
-            sleep(std::time::Duration::from_millis(100)).await;
+            sleep(std::time::Duration::from_millis(500)).await;
         }
 
         exec.close().await.unwrap();
 
-        assert!(exec.completed_count() == MAX_TASKS * 3);
+        assert!(exec.completed_count() == MAX_TASKS * 2);
 
         log::info!(
-            "close {:?} actives: {}, waitings: {}, is_full: {},  is_closed: {}, completeds: {}, rate: {:?}",
+            "close {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
             exec.is_closed(),
+            exec.is_flushing(),
             exec.completed_count(),
             exec.rate()
         );
