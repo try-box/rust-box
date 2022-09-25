@@ -1,6 +1,6 @@
 [package]
 name = "queue-ext"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.38"
@@ -9,6 +9,7 @@ repository = "https://github.com/try-box/rust-box/tree/main/queue-ext"
 homepage = "https://github.com/try-box/rust-box/tree/main/queue-ext"
 description = "The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to Sender."
 keywords = ["queue", "stream", "sender"]
+categories = ["algorithms", "concurrency", "data-structures"]
 
 [dependencies]
 futures = "0.3"
