@@ -1,3 +1,4 @@
+use std::fmt;
 use std::marker::Unpin;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -5,12 +6,12 @@ use std::task::{Context, Poll};
 use futures::Stream;
 
 #[allow(unreachable_pub)]
-pub use self::queue_stream::QueueStream;
+pub use self::queue_sender::QueueSender;
 #[allow(unreachable_pub)]
-pub use self::sender::{Action, Reply, Sender, SendError, TrySendError};
+pub use self::queue_stream::QueueStream;
 
+mod queue_sender;
 mod queue_stream;
-mod sender;
 
 pub trait Waker {
     fn rx_wake(&self);
@@ -30,12 +31,97 @@ pub trait QueueExt {
     }
 
     #[inline]
-    fn sender<Item, F, R>(self, f: F) -> Sender<Self, Item, F, R>
+    fn queue_sender<Item, F, R>(self, f: F) -> QueueSender<Self, Item, F, R>
         where
             Self: Sized + Waker,
             F: Fn(&mut Self, Action<Item>) -> Reply<R>,
     {
-        Sender::new(self, f)
+        QueueSender::new(self, f)
+    }
+}
+
+pub enum Action<Item> {
+    Send(Item),
+    IsFull,
+    IsEmpty,
+}
+
+pub enum Reply<R> {
+    Send(R),
+    IsFull(bool),
+    IsEmpty(bool),
+}
+
+pub type TrySendError<T> = SendError<T>;
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SendError<T> {
+    kind: SendErrorKind,
+    val: T,
+}
+
+impl<T> SendError<T> {
+    #[inline]
+    pub fn full(val: T) -> Self {
+        SendError {
+            kind: SendErrorKind::Full,
+            val,
+        }
+    }
+
+    #[inline]
+    pub fn disconnected(val: T) -> Self {
+        SendError {
+            kind: SendErrorKind::Disconnected,
+            val,
+        }
+    }
+}
+
+impl<T> fmt::Debug for SendError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SendError")
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
+impl<T> fmt::Display for SendError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_full() {
+            write!(f, "send failed because channel is full")
+        } else {
+            write!(f, "send failed because receiver is gone")
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SendErrorKind {
+    Full,
+    Disconnected,
+}
+
+impl<T: core::any::Any> std::error::Error for SendError<T> {}
+
+impl<T> SendError<T> {
+    /// Returns `true` if this error is a result of the channel being full.
+    #[inline]
+    pub fn is_full(&self) -> bool {
+        matches!(self.kind, SendErrorKind::Full)
+    }
+
+    /// Returns `true` if this error is a result of the receiver being dropped.
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        matches!(self.kind, SendErrorKind::Disconnected)
+    }
+
+    /// Returns the message that was attempted to be sent but failed.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.val
     }
 }
 
