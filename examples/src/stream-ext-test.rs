@@ -124,7 +124,7 @@ fn get_queue_stream(max: i32) -> impl Stream<Item=i32> + Debug {
         }
     });
 
-    let mut tx = s.clone().sender::<i32, _, _>(|s, act| match act {
+    let mut tx = s.clone().queue_sender::<i32, _, _>(|s, act| match act {
         Action::Send(item) => Reply::Send(s.push(item)),
         Action::IsFull => Reply::IsFull(false),
         Action::IsEmpty => Reply::IsEmpty(s.is_empty()),

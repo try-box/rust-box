@@ -92,7 +92,7 @@ async fn test_with_vec_deque() {
         }
     });
 
-    let mut tx = s.clone().sender(|s, act| match act {
+    let mut tx = s.clone().queue_sender(|s, act| match act {
         Action::Send(val) => {
             s.write().push_back(val);
             Reply::Send(())
@@ -135,7 +135,7 @@ async fn test_with_linked_hash_map() {
         }
     });
 
-    let mut tx = s.clone().sender::<(i32, i32), _, _>(|s, act| match act {
+    let mut tx = s.clone().queue_sender::<(i32, i32), _, _>(|s, act| match act {
         Action::Send((key, val)) => {
             let mut s = s.write();
             if s.contains_key(&key) {
@@ -176,7 +176,7 @@ async fn test_with_heep() {
         }
     });
 
-    let mut tx = s.clone().sender(|s, act| match act {
+    let mut tx = s.clone().queue_sender(|s, act| match act {
         Action::Send(item) => Reply::Send(s.write().push(item)),
         Action::IsFull => Reply::IsFull(false),
         Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
@@ -208,7 +208,7 @@ async fn test_with_crossbeam_segqueue() {
         }
     });
 
-    let mut tx = s.clone().sender(|s, act| match act {
+    let mut tx = s.clone().queue_sender(|s, act| match act {
         Action::Send(item) => Reply::Send(s.push(item)),
         Action::IsFull => Reply::IsFull(false),
         Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
@@ -240,7 +240,7 @@ async fn test_with_crossbeam_arrqueue() {
         }
     });
 
-    let mut tx = s.clone().sender(|s, act| match act {
+    let mut tx = s.clone().queue_sender(|s, act| match act {
         Action::Send(item) => Reply::Send(s.push(item)),
         Action::IsFull => Reply::IsFull(s.is_full()),
         Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
