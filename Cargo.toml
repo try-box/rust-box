@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -18,9 +18,9 @@ stream-ext-governor = ["stream-ext/governor"]
 task-executor-rate = ["task-executor/rate"]
 
 [dependencies]
-queue-ext = { version = "0.2", path = "./queue-ext", default-features = false, optional = true }
+queue-ext = { version = "0.3", path = "./queue-ext", default-features = false, optional = true }
 stream-ext = { version = "0.2", path = "./stream-ext", default-features = false, optional = true }
-task-executor = { version = "0.2", path = "./task-executor", default-features = false, optional = true }
+task-executor = { version = "0.3", path = "./task-executor", default-features = false, optional = true }
 
 [workspace]
 members = [
