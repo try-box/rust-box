@@ -1,15 +1,18 @@
 use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::future::Future;
+use std::hash::Hash;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::{ready, Sink, SinkExt, StreamExt};
 use futures::channel::mpsc;
 use futures::task::AtomicWaker;
-use parking_lot::RwLock;
+use futures::{ready, Sink, SinkExt, StreamExt};
+use parking_lot::{Mutex, RwLock};
 #[cfg(feature = "rate")]
 use update_rate::{DiscreteRateCounter, RateCounter};
 
@@ -17,9 +20,11 @@ use queue_ext::{Action, QueueExt, Reply};
 
 use super::{assert_future, Counter, Error, ErrorType, Spawner};
 
-type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
+type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+type TaskType = Box<dyn std::future::Future<Output = ()> + Send + 'static + Unpin>;
+type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskVecDeque>>>>;
 
-pub struct Executor {
+pub struct Executor<G = ()> {
     pub(crate) tx: mpsc::Sender<TaskType>,
     workers: usize,
     queue_max: isize,
@@ -30,9 +35,12 @@ pub struct Executor {
     rate_counter: Arc<RwLock<DiscreteRateCounter>>,
     flush_waker: Arc<AtomicWaker>,
     is_flushing: Arc<AtomicBool>,
+
+    //group
+    group_channels: GroupChannels<G>,
 }
 
-impl Clone for Executor {
+impl<G> Clone for Executor<G> {
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -46,13 +54,17 @@ impl Clone for Executor {
             rate_counter: self.rate_counter.clone(),
             flush_waker: self.flush_waker.clone(),
             is_flushing: self.is_flushing.clone(),
+            group_channels: self.group_channels.clone(),
         }
     }
 }
 
-impl Executor {
+impl<G> Executor<G>
+where
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
     #[inline]
-    pub(crate) fn new(workers: usize, queue_max: usize) -> (Self, impl Future<Output=()>) {
+    pub(crate) fn new(workers: usize, queue_max: usize) -> (Self, impl Future<Output = ()>) {
         let (tx, rx) = mpsc::channel(queue_max);
         let exec = Self {
             tx,
@@ -65,6 +77,7 @@ impl Executor {
             rate_counter: Arc::new(RwLock::new(DiscreteRateCounter::new(100))),
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
+            group_channels: Arc::new(DashMap::default()),
         };
         let runner = exec.clone().run(rx);
         (exec, runner)
@@ -72,11 +85,11 @@ impl Executor {
 
     #[inline]
     pub fn try_spawn<T>(&self, task: T) -> Result<(), Error<T>>
-        where
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    where
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
-        if self.is_closed() || self.is_flushing() {
+        if self.is_closed() {
             return Err(Error::TrySendError(ErrorType::Closed(Some(task))));
         }
         if self.is_full() {
@@ -98,17 +111,15 @@ impl Executor {
     }
 
     #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T>
-        where
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, G>
+    where
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
         let fut = Spawner::new(self, msg);
         assert_future::<Result<(), _>, _>(fut)
     }
 
-
-    //
     #[inline]
     pub fn flush(&self) -> Flush {
         self.is_flushing.store(true, Ordering::SeqCst);
@@ -184,7 +195,7 @@ impl Executor {
                 Some(m) => Poll::Ready(Some(m)),
             });
 
-            let tx = rx.clone().sender(|s, action| match action {
+            let tx = rx.clone().queue_sender(|s, action| match action {
                 Action::Send(item) => Reply::Send(s.set(item)),
                 Action::IsFull => Reply::IsFull(s.is_full()),
                 Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
@@ -254,15 +265,73 @@ impl Executor {
         futures::future::join(tasks_bus, futures::future::join_all(rxs)).await;
         log::info!("exit task executor");
     }
+
+    #[inline]
+    pub(crate) async fn group_send(&self, name: G, task: TaskType) -> Result<(), Error<TaskType>> {
+        if self.is_closed() {
+            return Err(Error::SendError(ErrorType::Closed(Some(task))));
+        }
+
+        let gt_queue = self
+            .group_channels
+            .entry(name.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskVecDeque::new())))
+            .value()
+            .clone();
+
+        let exec = self.clone();
+        let group_channels = self.group_channels.clone();
+        let runner_task = {
+            let mut task_tx = gt_queue.lock();
+            if task_tx.is_running() {
+                task_tx.push(task);
+                drop(task_tx);
+                drop(gt_queue);
+                None
+            } else {
+                task_tx.set_running(true);
+                drop(task_tx);
+                let task_rx = gt_queue; //.clone();
+                let runner_task = async move {
+                    exec.active_count.inc();
+                    task.await;
+                    exec.active_count.dec();
+                    loop {
+                        let task: Option<TaskType> = task_rx.lock().pop();
+                        if let Some(task) = task {
+                            exec.active_count.inc();
+                            task.await;
+                            exec.completed_count.inc();
+                            exec.active_count.dec();
+                        } else {
+                            group_channels.remove(&name);
+                            break;
+                        }
+                    }
+                };
+                Some(runner_task)
+            }
+        };
+
+        if let Some(runner_task) = runner_task {
+            if (self.tx.clone().send(Box::new(Box::pin(runner_task))).await).is_err() {
+                Err(Error::SendError(ErrorType::Closed(None)))
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone)]
-struct IndexSet(Arc<RwLock<HashSet<usize>>>);
+struct IndexSet(Arc<RwLock<HashSet<usize, ahash::RandomState>>>);
 
 impl IndexSet {
     #[inline]
     fn new() -> Self {
-        Self(Arc::new(RwLock::new(HashSet::new())))
+        Self(Arc::new(RwLock::new(HashSet::default())))
     }
 
     #[inline]
@@ -351,7 +420,6 @@ impl Future for PendingOnce {
     }
 }
 
-
 pub struct Flush {
     sink: mpsc::Sender<TaskType>,
     waiting_count: Counter,
@@ -389,7 +457,7 @@ impl Future for Flush {
             self.w.register(cx.waker());
             Poll::Pending
         } else {
-            self.is_flushing.store(false,Ordering::SeqCst);
+            self.is_flushing.store(false, Ordering::SeqCst);
             Poll::Ready(Ok(()))
         }
     }
@@ -432,9 +500,49 @@ impl Future for Close {
             self.w.register(cx.waker());
             Poll::Pending
         } else {
-            self.is_flushing.store(false,Ordering::SeqCst);
+            self.is_flushing.store(false, Ordering::SeqCst);
             Poll::Ready(Ok(()))
         }
+    }
+}
+
+struct GroupTaskVecDeque {
+    tasks: VecDeque<TaskType>,
+    is_running: bool,
+}
+
+impl GroupTaskVecDeque {
+    #[inline]
+    fn new() -> Self {
+        Self {
+            tasks: VecDeque::default(),
+            is_running: false,
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, task: TaskType) {
+        self.tasks.push_back(task);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<TaskType> {
+        if let Some(task) = self.tasks.pop_front() {
+            Some(task)
+        } else {
+            self.set_running(false);
+            None
+        }
+    }
+
+    #[inline]
+    fn set_running(&mut self, b: bool) {
+        self.is_running = b;
+    }
+
+    #[inline]
+    fn is_running(&self) -> bool {
+        self.is_running
     }
 }
 

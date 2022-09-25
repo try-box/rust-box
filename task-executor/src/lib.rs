@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+use std::hash::Hash;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use futures::channel::mpsc;
@@ -12,31 +14,28 @@ mod spawner;
 impl<T: ?Sized> SpawnExt for T where T: futures::Future {}
 
 pub trait SpawnExt: futures::Future {
-
-    fn spawn(self, exec: &Executor) -> Spawner<Self>
-        where
-            Self: Sized + Send + 'static,
-            Self::Output: Send + 'static,
+    fn spawn<G>(self, exec: &Executor<G>) -> Spawner<Self, G>
+    where
+        Self: Sized + Send + 'static,
+        Self::Output: Send + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
     {
         let f = Spawner::new(exec, self);
         assert_future::<_, _>(f)
     }
-
 }
 
 impl<T: ?Sized> SpawnDefaultExt for T where T: futures::Future {}
 
 pub trait SpawnDefaultExt: futures::Future {
-
-    fn spawn(self) -> Spawner<'static, Self>
-        where
-            Self: Sized + Send + 'static,
-            Self::Output: Send + 'static,
+    fn spawn(self) -> Spawner<'static, Self, ()>
+    where
+        Self: Sized + Send + 'static,
+        Self::Output: Send + 'static,
     {
         let f = Spawner::new(default(), self);
         assert_future::<_, _>(f)
     }
-
 }
 
 pub struct Builder {
@@ -66,8 +65,26 @@ impl Builder {
         self
     }
 
-    pub fn build(self) -> (Executor, impl futures::Future<Output=()>) {
+    #[inline]
+    pub fn group(self) -> GroupBuilder {
+        GroupBuilder { builder: self }
+    }
+
+    pub fn build(self) -> (Executor, impl futures::Future<Output = ()>) {
         Executor::new(self.workers, self.queue_max)
+    }
+}
+
+pub struct GroupBuilder {
+    builder: Builder,
+}
+
+impl GroupBuilder {
+    pub fn build<G>(self) -> (Executor<G>, impl futures::Future<Output = ()>)
+    where
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+    {
+        Executor::new(self.builder.workers, self.builder.queue_max)
     }
 }
 
@@ -111,6 +128,35 @@ pub enum ErrorType<T> {
     Timeout(Option<T>),
 }
 
+impl<T> Error<T> {
+    pub fn is_full(&self) -> bool {
+        matches!(
+            self,
+            Error::SendError(ErrorType::Full(_))
+                | Error::TrySendError(ErrorType::Full(_))
+                | Error::SendTimeoutError(ErrorType::Full(_))
+        )
+    }
+
+    pub fn is_closed(&self) -> bool {
+        matches!(
+            self,
+            Error::SendError(ErrorType::Closed(_))
+                | Error::TrySendError(ErrorType::Closed(_))
+                | Error::SendTimeoutError(ErrorType::Closed(_))
+        )
+    }
+
+    pub fn is_timeout(&self) -> bool {
+        matches!(
+            self,
+            Error::SendError(ErrorType::Timeout(_))
+                | Error::TrySendError(ErrorType::Timeout(_))
+                | Error::SendTimeoutError(ErrorType::Timeout(_))
+        )
+    }
+}
+
 impl<T> From<mpsc::TrySendError<T>> for Error<T> {
     fn from(e: mpsc::TrySendError<T>) -> Self {
         if e.is_full() {
@@ -134,8 +180,8 @@ impl<T> From<mpsc::SendError> for Error<T> {
 // Just a helper function to ensure the futures we're returning all have the
 // right implementations.
 pub(crate) fn assert_future<T, F>(future: F) -> F
-    where
-        F: futures::Future<Output=T>,
+where
+    F: futures::Future<Output = T>,
 {
     future
 }
@@ -146,7 +192,7 @@ pub fn set_default(exec: Executor) -> Result<(), Executor> {
     DEFAULT_EXECUTOR.set(exec)
 }
 
-pub fn init_default() -> impl futures::Future<Output=()> {
+pub fn init_default() -> impl futures::Future<Output = ()> {
     let (exec, runner) = Builder::default().workers(100).queue_max(100_000).build();
     DEFAULT_EXECUTOR.set(exec).ok().unwrap();
     runner
