@@ -1,111 +1,163 @@
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::task::{Context, Poll};
 
 use futures::channel::mpsc;
+use futures::task::AtomicWaker;
 use once_cell::sync::OnceCell;
+use parking_lot::RwLock;
 
-pub use exec::Executor;
-pub use spawner::Spawner;
+pub use builder::{
+    Builder, ChannelBuilder, GroupBuilder, GroupChannelBuilder, SpawnDefaultExt, SpawnExt,
+};
+pub use exec::{Executor, TaskType};
+pub use local::LocalExecutor;
+pub use local::LocalTaskType;
+pub use local_builder::{
+    ChannelLocalBuilder, GroupChannelLocalBuilder, LocalBuilder, LocalSpawnExt,
+};
+pub use local_spawner::{LocalGroupSpawner, LocalSpawner};
+pub use spawner::{GroupSpawner, Spawner};
 
+mod builder;
+mod close;
 mod exec;
+mod flush;
 mod spawner;
 
-impl<T: ?Sized> SpawnExt for T where T: futures::Future {}
-
-pub trait SpawnExt: futures::Future {
-    fn spawn<G>(self, exec: &Executor<G>) -> Spawner<Self, G>
-    where
-        Self: Sized + Send + 'static,
-        Self::Output: Send + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
-    {
-        let f = Spawner::new(exec, self);
-        assert_future::<_, _>(f)
-    }
-}
-
-impl<T: ?Sized> SpawnDefaultExt for T where T: futures::Future {}
-
-pub trait SpawnDefaultExt: futures::Future {
-    fn spawn(self) -> Spawner<'static, Self, ()>
-    where
-        Self: Sized + Send + 'static,
-        Self::Output: Send + 'static,
-    {
-        let f = Spawner::new(default(), self);
-        assert_future::<_, _>(f)
-    }
-}
-
-pub struct Builder {
-    workers: usize,
-    queue_max: usize,
-}
-
-impl Default for Builder {
-    fn default() -> Self {
-        Self {
-            workers: 100,
-            queue_max: 100_000,
-        }
-    }
-}
-
-impl Builder {
-    #[inline]
-    pub fn workers(mut self, workers: usize) -> Self {
-        self.workers = workers;
-        self
-    }
-
-    #[inline]
-    pub fn queue_max(mut self, queue_max: usize) -> Self {
-        self.queue_max = queue_max;
-        self
-    }
-
-    #[inline]
-    pub fn group(self) -> GroupBuilder {
-        GroupBuilder { builder: self }
-    }
-
-    pub fn build(self) -> (Executor, impl futures::Future<Output = ()>) {
-        Executor::new(self.workers, self.queue_max)
-    }
-}
-
-pub struct GroupBuilder {
-    builder: Builder,
-}
-
-impl GroupBuilder {
-    pub fn build<G>(self) -> (Executor<G>, impl futures::Future<Output = ()>)
-    where
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
-    {
-        Executor::new(self.builder.workers, self.builder.queue_max)
-    }
-}
+mod local;
+mod local_builder;
+mod local_spawner;
 
 #[derive(Clone, Debug)]
 struct Counter(std::sync::Arc<AtomicIsize>);
 
 impl Counter {
+    #[inline]
     fn new() -> Self {
         Counter(std::sync::Arc::new(AtomicIsize::new(0)))
     }
 
+    #[inline]
     fn inc(&self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 
+    #[inline]
     fn dec(&self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
     }
 
+    #[inline]
     fn value(&self) -> isize {
         self.0.load(Ordering::SeqCst)
+    }
+}
+
+#[derive(Clone)]
+struct IndexSet(Arc<RwLock<HashSet<usize, ahash::RandomState>>>);
+
+impl IndexSet {
+    #[inline]
+    fn new() -> Self {
+        Self(Arc::new(RwLock::new(HashSet::default())))
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        self.0.read().len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.read().is_empty()
+    }
+
+    #[inline]
+    fn insert(&self, v: usize) {
+        self.0.write().insert(v);
+    }
+
+    #[inline]
+    fn pop(&self) -> Option<usize> {
+        let mut set = self.0.write();
+        if let Some(idx) = set.iter().next().copied() {
+            set.remove(&idx);
+            Some(idx)
+        } else {
+            None
+        }
+    }
+}
+
+struct PendingOnce {
+    w: Arc<AtomicWaker>,
+    is_ready: bool,
+}
+
+impl PendingOnce {
+    #[inline]
+    fn new(w: Arc<AtomicWaker>) -> Self {
+        Self { w, is_ready: false }
+    }
+}
+
+impl Future for PendingOnce {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_ready {
+            Poll::Ready(())
+        } else {
+            self.w.register(cx.waker());
+            self.is_ready = true;
+            Poll::Pending
+        }
+    }
+}
+
+struct GroupTaskQueue<TT> {
+    tasks: VecDeque<TT>,
+    is_running: bool,
+}
+
+impl<TT> GroupTaskQueue<TT> {
+    #[inline]
+    fn new() -> Self {
+        Self {
+            tasks: VecDeque::default(),
+            is_running: false,
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, task: TT) {
+        self.tasks.push_back(task);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<TT> {
+        if let Some(task) = self.tasks.pop_front() {
+            Some(task)
+        } else {
+            self.set_running(false);
+            None
+        }
+    }
+
+    #[inline]
+    fn set_running(&mut self, b: bool) {
+        self.is_running = b;
+    }
+
+    #[inline]
+    fn is_running(&self) -> bool {
+        self.is_running
     }
 }
 
@@ -129,6 +181,7 @@ pub enum ErrorType<T> {
 }
 
 impl<T> Error<T> {
+    #[inline]
     pub fn is_full(&self) -> bool {
         matches!(
             self,
@@ -138,6 +191,7 @@ impl<T> Error<T> {
         )
     }
 
+    #[inline]
     pub fn is_closed(&self) -> bool {
         matches!(
             self,
@@ -147,6 +201,7 @@ impl<T> Error<T> {
         )
     }
 
+    #[inline]
     pub fn is_timeout(&self) -> bool {
         matches!(
             self,
@@ -180,8 +235,8 @@ impl<T> From<mpsc::SendError> for Error<T> {
 // Just a helper function to ensure the futures we're returning all have the
 // right implementations.
 pub(crate) fn assert_future<T, F>(future: F) -> F
-where
-    F: futures::Future<Output = T>,
+    where
+        F: futures::Future<Output=T>,
 {
     future
 }
@@ -192,7 +247,7 @@ pub fn set_default(exec: Executor) -> Result<(), Executor> {
     DEFAULT_EXECUTOR.set(exec)
 }
 
-pub fn init_default() -> impl futures::Future<Output = ()> {
+pub fn init_default() -> impl futures::Future<Output=()> {
     let (exec, runner) = Builder::default().workers(100).queue_max(100_000).build();
     DEFAULT_EXECUTOR.set(exec).ok().unwrap();
     runner
@@ -202,4 +257,18 @@ pub fn default() -> &'static Executor {
     DEFAULT_EXECUTOR
         .get()
         .expect("default executor must be set first")
+}
+
+#[test]
+fn test_index_set() {
+    let set = IndexSet::new();
+    set.insert(1);
+    set.insert(10);
+    set.insert(100);
+    assert_eq!(set.len(), 3);
+    assert!(matches!(set.pop(), Some(1) | Some(10) | Some(100)));
+    assert_eq!(set.len(), 2);
+    set.pop();
+    set.pop();
+    assert_eq!(set.len(), 0);
 }

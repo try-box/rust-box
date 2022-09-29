@@ -3,24 +3,27 @@ use std::hash::Hash;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::channel::oneshot;
 use futures::{Future, Sink, SinkExt};
+use futures::channel::oneshot;
+
+use crate::TaskType;
 
 use super::{assert_future, Error, ErrorType, Executor};
 
-pub struct GroupSpawner<'a, Item, G> {
-    inner: Spawner<'a, Item, G>,
+pub struct GroupSpawner<'a, Item, Tx, G> {
+    inner: Spawner<'a, Item, Tx, G, ()>,
     name: Option<G>,
 }
 
-impl<Item, G> Unpin for GroupSpawner<'_, Item, G> {}
+impl<Item, Tx, G> Unpin for GroupSpawner<'_, Item, Tx, G> {}
 
-impl<'a, Item, G> GroupSpawner<'a, Item, G>
-where
-    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
+    where
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
-    pub(crate) fn new(inner: Spawner<'a, Item, G>, name: G) -> Self {
+    pub(crate) fn new(inner: Spawner<'a, Item, Tx, G, ()>, name: G) -> Self {
         Self {
             inner,
             name: Some(name),
@@ -29,9 +32,9 @@ where
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
     {
         let task = match self.inner.item.take() {
             Some(task) => task,
@@ -73,16 +76,20 @@ where
             self.inner.sink.waiting_count.dec();
             Err(Error::SendError(ErrorType::Closed(None)))
         } else {
-            res_rx.await.map_err(|_| Error::RecvResultError)
+            res_rx.await.map_err(|_| {
+                self.inner.sink.waiting_count.dec();
+                Error::RecvResultError
+            })
         }
     }
 }
 
-impl<Item, G> Future for GroupSpawner<'_, Item, G>
-where
-    Item: Future + Send + 'static,
-    Item::Output: Send + 'static,
-    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -128,42 +135,58 @@ where
     }
 }
 
-pub struct Spawner<'a, Item, G> {
-    sink: &'a Executor<G>,
+pub struct Spawner<'a, Item, Tx, G, D> {
+    sink: &'a Executor<Tx, G, D>,
     item: Option<Item>,
+    d: Option<D>,
 }
 
-impl<Item, G> Unpin for Spawner<'_, Item, G> {}
+impl<'a, Item, Tx, G, D> Unpin for Spawner<'a, Item, Tx, G, D> {}
 
-impl<'a, Item, G> Spawner<'a, Item, G>
-where
-    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+impl<'a, Item, Tx, G> Spawner<'a, Item, Tx, G, ()>
+    where
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
-    pub(crate) fn new(sink: &'a Executor<G>, item: Item) -> Self {
-        Self {
-            sink,
-            item: Some(item),
-        }
-    }
-
-    #[inline]
-    pub fn group(self, name: G) -> GroupSpawner<'a, Item, G>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
+    pub fn group(self, name: G) -> GroupSpawner<'a, Item, Tx, G>
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
     {
         let fut = GroupSpawner::new(self, name);
         assert_future::<Result<(), _>, _>(fut)
     }
+}
+
+impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
+    where
+        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    #[inline]
+    pub(crate) fn new(sink: &'a Executor<Tx, G, D>, item: Item, d: D) -> Self {
+        Self {
+            sink,
+            item: Some(item),
+            d: Some(d),
+        }
+    }
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
     {
-        let task = self.item.take().expect("polled Feed after completion");
+        let task = self
+            .item
+            .take()
+            .expect("polled Feed after completion, task is None!");
+        let d = self
+            .d
+            .take()
+            .expect("polled Feed after completion, d is None!");
 
         if self.sink.is_closed() {
             return Err(Error::SendError(ErrorType::Closed(Some(task))));
@@ -180,19 +203,30 @@ where
         };
         self.sink.waiting_count.inc();
 
-        if let Err(e) = self.sink.tx.clone().send(Box::new(Box::pin(task))).await {
+        if self
+            .sink
+            .tx
+            .clone()
+            .send((d, Box::new(Box::pin(task))))
+            .await
+            .is_err()
+        {
             self.sink.waiting_count.dec();
-            return Err(Error::from(e));
+            return Err(Error::SendError(ErrorType::Closed(None)));
         }
-        res_rx.await.map_err(|_| Error::RecvResultError)
+        res_rx.await.map_err(|_| {
+            self.sink.waiting_count.dec();
+            Error::RecvResultError
+        })
     }
 }
 
-impl<Item, G> Future for Spawner<'_, Item, G>
-where
-    Item: Future + Send + 'static,
-    Item::Output: Send + 'static,
-    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+impl<Item, Tx, G, D> Future for Spawner<'_, Item, Tx, G, D>
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
+        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -205,12 +239,23 @@ where
                 return Poll::Ready(Ok(()));
             }
         };
+
+        let d = match this.d.take() {
+            Some(d) => d,
+            None => {
+                log::error!("polled Feed after completion, d is None!");
+                return Poll::Ready(Ok(()));
+            }
+        };
+
         if this.sink.is_closed() {
             return Poll::Ready(Err(Error::SendError(ErrorType::Closed(Some(task)))));
         }
+
         let mut tx = this.sink.tx.clone();
         let mut sink = Pin::new(&mut tx);
-        futures::ready!(sink.as_mut().poll_ready(cx))?;
+        futures::ready!(sink.as_mut().poll_ready(cx))
+            .map_err(|_| Error::SendError(ErrorType::Closed(None)))?;
         let waiting_count = this.sink.waiting_count.clone();
         let task = async move {
             waiting_count.dec();
@@ -218,10 +263,10 @@ where
         };
         this.sink.waiting_count.inc();
         sink.as_mut()
-            .start_send(Box::new(Box::pin(task)))
-            .map_err(|e| {
+            .start_send((d, Box::new(Box::pin(task))))
+            .map_err(|_e| {
                 this.sink.waiting_count.dec();
-                e
+                Error::SendError(ErrorType::Closed(None))
             })?;
         Poll::Ready(Ok(()))
     }

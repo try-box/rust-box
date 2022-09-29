@@ -1,31 +1,33 @@
-use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::Unpin;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::Poll;
 
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::task::AtomicWaker;
-use futures::{ready, Sink, SinkExt, StreamExt};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
+use parking_lot::RwLock;
 #[cfg(feature = "rate")]
 use update_rate::{DiscreteRateCounter, RateCounter};
 
 use queue_ext::{Action, QueueExt, Reply};
 
-use super::{assert_future, Counter, Error, ErrorType, Spawner};
+use super::{
+    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskQueue, IndexSet,
+    PendingOnce, Spawner,
+};
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-type TaskType = Box<dyn std::future::Future<Output = ()> + Send + 'static + Unpin>;
-type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskVecDeque>>>>;
+type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskQueue<TaskType>>>>>;
 
-pub struct Executor<G = ()> {
-    pub(crate) tx: mpsc::Sender<TaskType>,
+pub type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
+
+pub struct Executor<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
+    pub(crate) tx: Tx,
     workers: usize,
     queue_max: isize,
     active_count: Counter,
@@ -35,12 +37,17 @@ pub struct Executor<G = ()> {
     rate_counter: Arc<RwLock<DiscreteRateCounter>>,
     flush_waker: Arc<AtomicWaker>,
     is_flushing: Arc<AtomicBool>,
+    is_closed: Arc<AtomicBool>,
 
     //group
     group_channels: GroupChannels<G>,
+    _d: std::marker::PhantomData<D>,
 }
 
-impl<G> Clone for Executor<G> {
+impl<Tx, G, D> Clone for Executor<Tx, G, D>
+    where
+        Tx: Clone,
+{
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -54,18 +61,28 @@ impl<G> Clone for Executor<G> {
             rate_counter: self.rate_counter.clone(),
             flush_waker: self.flush_waker.clone(),
             is_flushing: self.is_flushing.clone(),
+            is_closed: self.is_closed.clone(),
             group_channels: self.group_channels.clone(),
+            _d: std::marker::PhantomData,
         }
     }
 }
 
-impl<G> Executor<G>
-where
-    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+impl<Tx, G, D> Executor<Tx, G, D>
+    where
+        Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
-    pub(crate) fn new(workers: usize, queue_max: usize) -> (Self, impl Future<Output = ()>) {
-        let (tx, rx) = mpsc::channel(queue_max);
+    pub(crate) fn with_channel<Rx>(
+        workers: usize,
+        queue_max: usize,
+        tx: Tx,
+        rx: Rx,
+    ) -> (Self, impl Future<Output=()>)
+        where
+            Rx: Stream<Item=(D, TaskType)> + Unpin,
+    {
         let exec = Self {
             tx,
             workers,
@@ -77,51 +94,27 @@ where
             rate_counter: Arc::new(RwLock::new(DiscreteRateCounter::new(100))),
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
+            is_closed: Arc::new(AtomicBool::new(false)),
             group_channels: Arc::new(DashMap::default()),
+            _d: std::marker::PhantomData,
         };
         let runner = exec.clone().run(rx);
         (exec, runner)
     }
 
     #[inline]
-    pub fn try_spawn<T>(&self, task: T) -> Result<(), Error<T>>
-    where
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
+    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
+        where
+            D: Clone,
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
     {
-        if self.is_closed() {
-            return Err(Error::TrySendError(ErrorType::Closed(Some(task))));
-        }
-        if self.is_full() {
-            return Err(Error::TrySendError(ErrorType::Full(Some(task))));
-        }
-        let waiting_count = self.waiting_count.clone();
-        let task = async move {
-            waiting_count.dec();
-            let _ = task.await;
-        };
-        self.waiting_count.inc();
-
-        if let Err(_e) = self.tx.clone().try_send(Box::new(Box::pin(task))) {
-            self.waiting_count.dec();
-            Err(Error::TrySendError(ErrorType::Closed(None)))
-        } else {
-            Ok(())
-        }
-    }
-
-    #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, G>
-    where
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
-    {
-        let fut = Spawner::new(self, msg);
+        let fut = Spawner::new(self, msg, name);
         assert_future::<Result<(), _>, _>(fut)
     }
 
     #[inline]
-    pub fn flush(&self) -> Flush {
+    pub fn flush(&self) -> Flush<Tx, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
         Flush::new(
             self.tx.clone(),
@@ -133,8 +126,9 @@ where
     }
 
     #[inline]
-    pub fn close(&self) -> Close {
+    pub fn close(&self) -> Close<Tx, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
+        self.is_closed.store(true, Ordering::SeqCst);
         Close::new(
             self.tx.clone(),
             self.waiting_count.clone(),
@@ -177,7 +171,7 @@ where
 
     #[inline]
     pub fn is_closed(&self) -> bool {
-        self.tx.is_closed()
+        self.is_closed.load(Ordering::SeqCst)
     }
 
     #[inline]
@@ -185,7 +179,10 @@ where
         self.is_flushing.load(Ordering::SeqCst)
     }
 
-    async fn run(self, mut task_rx: mpsc::Receiver<TaskType>) {
+    async fn run<Rx>(self, mut task_rx: Rx)
+        where
+            Rx: Stream<Item=(D, TaskType)> + Unpin,
+    {
         let exec = self;
         let idle_waker = Arc::new(AtomicWaker::new());
 
@@ -243,7 +240,7 @@ where
         }
 
         let tasks_bus = async move {
-            while let Some(task) = task_rx.next().await {
+            while let Some((_, task)) = task_rx.next().await {
                 loop {
                     if idle_idxs.is_empty() {
                         //sleep ...
@@ -265,6 +262,22 @@ where
         futures::future::join(tasks_bus, futures::future::join_all(rxs)).await;
         log::info!("exit task executor");
     }
+}
+
+impl<Tx, G> Executor<Tx, G, ()>
+    where
+        Tx: Clone + Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    #[inline]
+    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, Tx, G, ()>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        let fut = Spawner::new(self, msg, ());
+        assert_future::<Result<(), _>, _>(fut)
+    }
 
     #[inline]
     pub(crate) async fn group_send(&self, name: G, task: TaskType) -> Result<(), Error<TaskType>> {
@@ -275,7 +288,7 @@ where
         let gt_queue = self
             .group_channels
             .entry(name.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskVecDeque::new())))
+            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskQueue::new())))
             .value()
             .clone();
 
@@ -314,50 +327,19 @@ where
         };
 
         if let Some(runner_task) = runner_task {
-            if (self.tx.clone().send(Box::new(Box::pin(runner_task))).await).is_err() {
+            if (self
+                .tx
+                .clone()
+                .send(((), Box::new(Box::pin(runner_task))))
+                .await)
+                .is_err()
+            {
                 Err(Error::SendError(ErrorType::Closed(None)))
             } else {
                 Ok(())
             }
         } else {
             Ok(())
-        }
-    }
-}
-
-#[derive(Clone)]
-struct IndexSet(Arc<RwLock<HashSet<usize, ahash::RandomState>>>);
-
-impl IndexSet {
-    #[inline]
-    fn new() -> Self {
-        Self(Arc::new(RwLock::new(HashSet::default())))
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    fn len(&self) -> usize {
-        self.0.read().len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.read().is_empty()
-    }
-
-    #[inline]
-    fn insert(&self, v: usize) {
-        self.0.write().insert(v);
-    }
-
-    #[inline]
-    fn pop(&self) -> Option<usize> {
-        let mut set = self.0.write();
-        if let Some(idx) = set.iter().next().copied() {
-            set.remove(&idx);
-            Some(idx)
-        } else {
-            None
         }
     }
 }
@@ -393,169 +375,4 @@ impl OneValue {
     fn is_empty(&self) -> bool {
         self.0.read().is_none()
     }
-}
-
-struct PendingOnce {
-    w: Arc<AtomicWaker>,
-    is_ready: bool,
-}
-
-impl PendingOnce {
-    #[inline]
-    fn new(w: Arc<AtomicWaker>) -> Self {
-        Self { w, is_ready: false }
-    }
-}
-
-impl Future for PendingOnce {
-    type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.is_ready {
-            Poll::Ready(())
-        } else {
-            self.w.register(cx.waker());
-            self.is_ready = true;
-            Poll::Pending
-        }
-    }
-}
-
-pub struct Flush {
-    sink: mpsc::Sender<TaskType>,
-    waiting_count: Counter,
-    active_count: Counter,
-    is_flushing: Arc<AtomicBool>,
-    w: Arc<AtomicWaker>,
-}
-
-impl Unpin for Flush {}
-
-impl Flush {
-    fn new(
-        sink: mpsc::Sender<TaskType>,
-        waiting_count: Counter,
-        active_count: Counter,
-        is_flushing: Arc<AtomicBool>,
-        w: Arc<AtomicWaker>,
-    ) -> Self {
-        Self {
-            sink,
-            waiting_count,
-            active_count,
-            is_flushing,
-            w,
-        }
-    }
-}
-
-impl Future for Flush {
-    type Output = Result<(), mpsc::SendError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        ready!(Pin::new(&mut self.sink).poll_flush(cx))?;
-        if self.waiting_count.value() > 0 || self.active_count.value() > 0 {
-            self.w.register(cx.waker());
-            Poll::Pending
-        } else {
-            self.is_flushing.store(false, Ordering::SeqCst);
-            Poll::Ready(Ok(()))
-        }
-    }
-}
-
-pub struct Close {
-    sink: mpsc::Sender<TaskType>,
-    waiting_count: Counter,
-    active_count: Counter,
-    is_flushing: Arc<AtomicBool>,
-    w: Arc<AtomicWaker>,
-}
-
-impl Unpin for Close {}
-
-impl Close {
-    fn new(
-        sink: mpsc::Sender<TaskType>,
-        waiting_count: Counter,
-        active_count: Counter,
-        is_flushing: Arc<AtomicBool>,
-        w: Arc<AtomicWaker>,
-    ) -> Self {
-        Self {
-            sink,
-            waiting_count,
-            active_count,
-            is_flushing,
-            w,
-        }
-    }
-}
-
-impl Future for Close {
-    type Output = Result<(), mpsc::SendError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        ready!(Pin::new(&mut self.sink).poll_close(cx))?;
-        if self.waiting_count.value() > 0 || self.active_count.value() > 0 {
-            self.w.register(cx.waker());
-            Poll::Pending
-        } else {
-            self.is_flushing.store(false, Ordering::SeqCst);
-            Poll::Ready(Ok(()))
-        }
-    }
-}
-
-struct GroupTaskVecDeque {
-    tasks: VecDeque<TaskType>,
-    is_running: bool,
-}
-
-impl GroupTaskVecDeque {
-    #[inline]
-    fn new() -> Self {
-        Self {
-            tasks: VecDeque::default(),
-            is_running: false,
-        }
-    }
-
-    #[inline]
-    fn push(&mut self, task: TaskType) {
-        self.tasks.push_back(task);
-    }
-
-    #[inline]
-    fn pop(&mut self) -> Option<TaskType> {
-        if let Some(task) = self.tasks.pop_front() {
-            Some(task)
-        } else {
-            self.set_running(false);
-            None
-        }
-    }
-
-    #[inline]
-    fn set_running(&mut self, b: bool) {
-        self.is_running = b;
-    }
-
-    #[inline]
-    fn is_running(&self) -> bool {
-        self.is_running
-    }
-}
-
-#[test]
-fn test_index_set() {
-    let set = IndexSet::new();
-    set.insert(1);
-    set.insert(10);
-    set.insert(100);
-    assert_eq!(set.len(), 3);
-    assert!(matches!(set.pop(), Some(1) | Some(10) | Some(100)));
-    assert_eq!(set.len(), 2);
-    set.pop();
-    set.pop();
-    assert_eq!(set.len(), 0);
 }
