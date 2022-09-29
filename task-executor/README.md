@@ -15,6 +15,7 @@ problems.
 - Control the number of concurrently executed tasks;
 - Support task queue;
 - The same grouped tasks are executed sequentially;
+- Support Local tasks
 
 ## Plan
 
