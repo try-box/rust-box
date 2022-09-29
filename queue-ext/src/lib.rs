@@ -38,6 +38,44 @@ pub trait QueueExt {
     {
         QueueSender::new(self, f)
     }
+
+    #[inline]
+    #[allow(clippy::type_complexity)]
+    fn queue_channel<Item, F1, R, F2>(
+        self,
+        f1: F1,
+        f2: F2,
+    ) -> (
+        QueueSender<QueueStream<Self, Item, F2>, Item, F1, R>,
+        QueueStream<Self, Item, F2>,
+    )
+        where
+            Self: Sized + Unpin + Clone,
+            F1: Fn(&mut QueueStream<Self, Item, F2>, Action<Item>) -> Reply<R>,
+            F2: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
+    {
+        queue_channel(self, f1, f2)
+    }
+}
+
+#[allow(clippy::type_complexity)]
+#[inline]
+pub fn queue_channel<Q, Item, F1, R, F2>(
+    q: Q,
+    f1: F1,
+    f2: F2,
+) -> (
+    QueueSender<QueueStream<Q, Item, F2>, Item, F1, R>,
+    QueueStream<Q, Item, F2>,
+)
+    where
+        Q: Sized + Unpin + Clone,
+        F1: Fn(&mut QueueStream<Q, Item, F2>, Action<Item>) -> Reply<R>,
+        F2: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
+{
+    let rx = QueueStream::new(q, f2);
+    let tx = QueueSender::new(rx.clone(), f1);
+    (tx, rx)
 }
 
 pub enum Action<Item> {
