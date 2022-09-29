@@ -27,6 +27,10 @@ pin_project! {
     }
 }
 
+unsafe impl<Q, Item, F> Sync for QueueStream<Q, Item, F> {}
+
+unsafe impl<Q, Item, F> Send for QueueStream<Q, Item, F> {}
+
 impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
     where
         Q: Clone,

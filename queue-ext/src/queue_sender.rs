@@ -19,6 +19,10 @@ pin_project! {
     }
 }
 
+unsafe impl<S, Item, F, R> Sync for QueueSender<S, Item, F, R> {}
+
+unsafe impl<S, Item, F, R> Send for QueueSender<S, Item, F, R> {}
+
 impl<S, Item, F, R> Clone for QueueSender<S, Item, F, R>
     where
         S: Clone,
