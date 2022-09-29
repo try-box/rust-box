@@ -2,6 +2,14 @@
 #![allow(dead_code)]
 
 
+use futures::{Sink, Stream};
+use linked_hash_map::LinkedHashMap;
+use parking_lot::RwLock;
+use rust_box::queue_ext::{Action, QueueExt, Reply};
+use std::sync::Arc;
+use std::task::Poll;
+use std::time::Duration;
+
 fn main() {
     std::env::set_var("RUST_LOG", "task_executor=info,test_executor_ext=info, test_group=info");
     env_logger::init();
@@ -12,7 +20,9 @@ fn main() {
     // test_executor_ext();
     // test_executor();
 
-    test_group();
+    test_channel();
+
+    // test_group();
     // test_group_bench();
 }
 
@@ -58,6 +68,78 @@ fn test_return_result() {
     async_std::task::block_on(global);
 }
 
+fn test_channel() {
+    use async_std::task::{sleep, spawn};
+    use rust_box::task_executor::{Builder, SpawnExt, TaskType};
+    let queue_max = 100;
+    let (tx, rx) = channel::<TaskType>(queue_max);
+    let (mut exec, task_runner) = Builder::default().workers(10).with_channel(tx, rx).build();
+    let global = async move {
+        spawn(async {
+            //start executor
+            task_runner.await;
+        });
+
+        let exec1 = exec.clone();
+        let exec2 = exec.clone();
+
+        spawn(async move {
+            let _res = async {
+                println!("with channel: hello world!");
+            }.spawn_with(&exec1, "test2").result().await;
+        });
+
+        spawn(async move {
+            let res = async {
+                sleep(Duration::from_micros(100)).await;
+                println!("with channel and result: hello world!");
+                100
+            }.spawn_with(&exec2, "test2").result().await;
+            println!("result: {:?}", res.ok());
+        });
+
+        exec.spawn_with(async {
+            println!("hello world!");
+        }, "test2").result().await;
+
+        println!("1 exec.actives: {}, waitings: {}, completeds: {}", exec.active_count(), exec.waiting_count(), exec.completed_count());
+        //exec.flush().await;
+        sleep(Duration::from_micros(1500)).await;
+        println!("2 exec.actives: {}, waitings: {}, completeds: {}", exec.active_count(), exec.waiting_count(), exec.completed_count());
+    };
+    async_std::task::block_on(global);
+}
+
+fn channel<'a, T>(cap: usize) -> (impl Sink<(&'a str, T)> + Clone, impl Stream<Item=(&'a str, T)>)
+{
+    let (tx, rx) = Arc::new(RwLock::new(LinkedHashMap::new())).queue_channel(
+        move |s, act| match act {
+            Action::Send((key, val)) => {
+                let mut s = s.write();
+                if s.contains_key(&key) {
+                    println!("remove old, {}", key);
+                    s.remove(&key);
+                }
+                s.insert(key, val);
+                Reply::Send(())
+            }
+            Action::IsFull => Reply::IsFull(s.read().len() >= cap),
+            Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
+        },
+        |s, _| {
+            let mut s = s.write();
+            if s.is_empty() {
+                Poll::Pending
+            } else {
+                match s.pop_front() {
+                    Some(m) => Poll::Ready(Some(m)),
+                    None => Poll::Pending,
+                }
+            }
+        },
+    );
+    (tx, rx)
+}
 
 fn test_executor_async_std() {
     use async_std::{
