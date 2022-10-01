@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::Poll;
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use futures::channel::mpsc;
 use futures::task::AtomicWaker;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
@@ -17,8 +16,8 @@ use update_rate::{DiscreteRateCounter, RateCounter};
 use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
-    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskQueue, IndexSet,
-    LocalSpawner, PendingOnce,
+    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush,
+    GroupTaskQueue, IndexSet, local_builder::SyncSender, LocalSpawner, PendingOnce,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -26,7 +25,7 @@ type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskQueue<LocalTaskType>>>
 
 pub type LocalTaskType = Box<dyn std::future::Future<Output=()> + 'static + Unpin>;
 
-pub struct LocalExecutor<Tx = mpsc::Sender<((), LocalTaskType)>, G = (), D = ()> {
+pub struct LocalExecutor<Tx = SyncSender, G = (), D = ()> {
     pub(crate) tx: Tx,
     workers: usize,
     queue_max: isize,

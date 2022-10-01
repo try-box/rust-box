@@ -1,6 +1,11 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::Unpin;
+use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use futures::channel::mpsc;
 
 use super::{assert_future, LocalExecutor, LocalSpawner, LocalTaskType};
 
@@ -76,6 +81,12 @@ impl LocalBuilder {
             _d: std::marker::PhantomData,
         }
     }
+
+    #[inline]
+    pub fn build(self) -> (LocalExecutor, impl futures::Future<Output=()>) {
+        let (tx, rx) = futures::channel::mpsc::channel(self.queue_max);
+        LocalExecutor::with_channel(self.workers, self.queue_max, SyncSender(tx), rx)
+    }
 }
 
 pub struct ChannelLocalBuilder<Tx, Rx, D> {
@@ -126,5 +137,47 @@ impl<Tx, Rx, D> GroupChannelLocalBuilder<Tx, Rx, D>
             self.builder.tx,
             self.builder.rx,
         )
+    }
+}
+
+type DataType = ((), LocalTaskType);
+
+#[derive(Clone)]
+pub struct SyncSender(mpsc::Sender<DataType>);
+
+unsafe impl Sync for SyncSender {}
+
+impl Deref for SyncSender {
+    type Target = mpsc::Sender<DataType>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SyncSender {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl futures::Sink<DataType> for SyncSender {
+    type Error = mpsc::SendError;
+
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(cx)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, msg: DataType) -> Result<(), Self::Error> {
+        self.0.start_send(msg)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_close(cx)
     }
 }
