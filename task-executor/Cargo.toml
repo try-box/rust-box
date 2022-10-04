@@ -1,6 +1,6 @@
 [package]
 name = "task-executor"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 description = "A task executor"
