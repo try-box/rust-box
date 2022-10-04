@@ -19,7 +19,7 @@ pub use exec::{Executor, TaskType};
 pub use local::LocalExecutor;
 pub use local::LocalTaskType;
 pub use local_builder::{
-    ChannelLocalBuilder, GroupChannelLocalBuilder, LocalBuilder, LocalSpawnExt,
+    ChannelLocalBuilder, GroupChannelLocalBuilder, LocalBuilder, LocalSpawnExt, SyncSender,
 };
 pub use local_spawner::{LocalGroupSpawner, LocalSpawner};
 pub use spawner::{GroupSpawner, Spawner};
