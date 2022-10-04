@@ -143,7 +143,7 @@ impl<Tx, Rx, D> GroupChannelLocalBuilder<Tx, Rx, D>
 type DataType = ((), LocalTaskType);
 
 #[derive(Clone)]
-pub struct SyncSender(mpsc::Sender<DataType>);
+pub struct SyncSender(pub mpsc::Sender<DataType>);
 
 unsafe impl Sync for SyncSender {}
 
