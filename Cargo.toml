@@ -20,7 +20,7 @@ task-executor-rate = ["task-executor/rate"]
 [dependencies]
 queue-ext = { version = "0.3.0", path = "./queue-ext", default-features = false, optional = true }
 stream-ext = { version = "0.2.2", path = "./stream-ext", default-features = false, optional = true }
-task-executor = { version = "0.3.2", path = "./task-executor", default-features = false, optional = true }
+task-executor = { version = "0.3.3", path = "./task-executor", default-features = false, optional = true }
 
 [workspace]
 members = [
