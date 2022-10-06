@@ -6,24 +6,24 @@ use std::task::{Context, Poll};
 use futures::{Future, Sink, SinkExt};
 use futures::channel::oneshot;
 
-use crate::TaskType;
+use crate::LocalTaskType;
 
-use super::{assert_future, Error, ErrorType, Executor};
+use super::{assert_future, Error, ErrorType, LocalTaskExecQueue};
 
-pub struct GroupSpawner<'a, Item, Tx, G> {
-    inner: Spawner<'a, Item, Tx, G, ()>,
+pub struct LocalGroupSpawner<'a, Item, Tx, G> {
+    inner: LocalSpawner<'a, Item, Tx, G, ()>,
     name: Option<G>,
 }
 
-impl<Item, Tx, G> Unpin for GroupSpawner<'_, Item, Tx, G> {}
+impl<Item, Tx, G> Unpin for LocalGroupSpawner<'_, Item, Tx, G> {}
 
-impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
+impl<'a, Item, Tx, G> LocalGroupSpawner<'a, Item, Tx, G>
     where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Tx: Clone + Unpin + Sink<((), LocalTaskType)> + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
-    pub(crate) fn new(inner: Spawner<'a, Item, Tx, G, ()>, name: G) -> Self {
+    pub(crate) fn new(inner: LocalSpawner<'a, Item, Tx, G, ()>, name: G) -> Self {
         Self {
             inner,
             name: Some(name),
@@ -33,8 +33,8 @@ impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
         where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+            Item: Future + 'static,
+            Item::Output: 'static,
     {
         let task = match self.inner.item.take() {
             Some(task) => task,
@@ -84,12 +84,12 @@ impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
     }
 }
 
-impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
+impl<Item, Tx, G> Future for LocalGroupSpawner<'_, Item, Tx, G>
     where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Item: Future + 'static,
+        Item::Output: 'static,
+        Tx: Clone + Unpin + Sink<((), LocalTaskType)> + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -120,11 +120,12 @@ impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
             let _ = task.await;
         };
         this.inner.sink.waiting_count.inc();
+
         let mut group_send = this
             .inner
             .sink
             .group_send(name, Box::new(Box::pin(task)))
-            .boxed();
+            .boxed_local();
         use futures_lite::FutureExt;
         if (futures::ready!(group_send.poll(cx))).is_err() {
             this.inner.sink.waiting_count.dec();
@@ -135,37 +136,37 @@ impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
     }
 }
 
-pub struct Spawner<'a, Item, Tx, G, D> {
-    sink: &'a Executor<Tx, G, D>,
+pub struct LocalSpawner<'a, Item, Tx, G, D> {
+    sink: &'a LocalTaskExecQueue<Tx, G, D>,
     item: Option<Item>,
     d: Option<D>,
 }
 
-impl<'a, Item, Tx, G, D> Unpin for Spawner<'a, Item, Tx, G, D> {}
+impl<'a, Item, Tx, G, D> Unpin for LocalSpawner<'a, Item, Tx, G, D> {}
 
-impl<'a, Item, Tx, G> Spawner<'a, Item, Tx, G, ()>
+impl<'a, Item, Tx, G> LocalSpawner<'a, Item, Tx, G, ()>
     where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Tx: Clone + Unpin + Sink<((), LocalTaskType)> + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
-    pub fn group(self, name: G) -> GroupSpawner<'a, Item, Tx, G>
+    pub fn group(self, name: G) -> LocalGroupSpawner<'a, Item, Tx, G>
         where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+            Item: Future + 'static,
+            Item::Output: 'static,
     {
-        let fut = GroupSpawner::new(self, name);
+        let fut = LocalGroupSpawner::new(self, name);
         assert_future::<Result<(), _>, _>(fut)
     }
 }
 
-impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
+impl<'a, Item, Tx, G, D> LocalSpawner<'a, Item, Tx, G, D>
     where
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Tx: Clone + Unpin + Sink<(D, LocalTaskType)> + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
-    pub(crate) fn new(sink: &'a Executor<Tx, G, D>, item: Item, d: D) -> Self {
+    pub(crate) fn new(sink: &'a LocalTaskExecQueue<Tx, G, D>, item: Item, d: D) -> Self {
         Self {
             sink,
             item: Some(item),
@@ -176,8 +177,8 @@ impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
         where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+            Item: Future + 'static,
+            Item::Output: 'static,
     {
         let task = self
             .item
@@ -221,12 +222,12 @@ impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
     }
 }
 
-impl<Item, Tx, G, D> Future for Spawner<'_, Item, Tx, G, D>
+impl<Item, Tx, G, D> Future for LocalSpawner<'_, Item, Tx, G, D>
     where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Item: Future + 'static,
+        Item::Output: 'static,
+        Tx: Clone + Unpin + Sink<(D, LocalTaskType)> + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 

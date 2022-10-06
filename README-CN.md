@@ -16,8 +16,8 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   Streams 的扩展特征，提供各种方便的组合函数。
 * [`queue-ext`](queue-ext)
   队列的扩展特征，可将队列的pop()函数转换为Stream，push()函数转换为Sender。
-* [`task-executor`](task-executor)
-  一个可控制并发执行任务数量的任务执行器。
+* [`task-exec-queue`](task-exec-queue)
+  一个任务执行队列。可限制任务并发执行数量，可控制同一类任务执行顺序。
 
 ## 使用
 
@@ -25,14 +25,14 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 
 ```toml
 [dependencies]
-rust-box = "0.3"
+rust-box = "0.4"
 ```
 
 ## 例子
 
 - [queue-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/queue-ext-test.rs)
 - [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
-- [task-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-executor-test.rs)
+- [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)
 
 ## License
 

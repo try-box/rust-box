@@ -7,27 +7,27 @@ use std::task::{Context, Poll};
 
 use futures::channel::mpsc;
 
-use super::{assert_future, LocalExecutor, LocalSpawner, LocalTaskType};
+use super::{assert_future, LocalSpawner, LocalTaskExecQueue, LocalTaskType};
 
 impl<T: ?Sized> LocalSpawnExt for T where T: futures::Future {}
 
 pub trait LocalSpawnExt: futures::Future {
     #[inline]
-    fn spawn<Tx, G>(self, exec: &LocalExecutor<Tx, G>) -> LocalSpawner<Self, Tx, G, ()>
+    fn spawn<Tx, G>(self, queue: &LocalTaskExecQueue<Tx, G>) -> LocalSpawner<Self, Tx, G, ()>
         where
             Self: Sized + 'static,
             Self::Output: 'static,
             Tx: Clone + Unpin + futures::Sink<((), LocalTaskType)> + Sync + 'static,
             G: Hash + Eq + Clone + Debug + Sync + 'static,
     {
-        let f = LocalSpawner::new(exec, self, ());
+        let f = LocalSpawner::new(queue, self, ());
         assert_future::<_, _>(f)
     }
 
     #[inline]
     fn spawn_with<Tx, G, D>(
         self,
-        exec: &LocalExecutor<Tx, G, D>,
+        queue: &LocalTaskExecQueue<Tx, G, D>,
         name: D,
     ) -> LocalSpawner<Self, Tx, G, D>
         where
@@ -36,7 +36,7 @@ pub trait LocalSpawnExt: futures::Future {
             Tx: Clone + Unpin + futures::Sink<(D, LocalTaskType)> + Sync + 'static,
             G: Hash + Eq + Clone + Debug + Sync + 'static,
     {
-        let f = LocalSpawner::new(exec, self, name);
+        let f = LocalSpawner::new(queue, self, name);
         assert_future::<_, _>(f)
     }
 }
@@ -63,8 +63,8 @@ impl LocalBuilder {
     }
 
     #[inline]
-    pub fn queue_max(mut self, queue_max: usize) -> Self {
-        self.queue_max = queue_max;
+    pub fn queue_max(mut self, max: usize) -> Self {
+        self.queue_max = max;
         self
     }
 
@@ -83,9 +83,9 @@ impl LocalBuilder {
     }
 
     #[inline]
-    pub fn build(self) -> (LocalExecutor, impl futures::Future<Output=()>) {
+    pub fn build(self) -> (LocalTaskExecQueue, impl futures::Future<Output=()>) {
         let (tx, rx) = futures::channel::mpsc::channel(self.queue_max);
-        LocalExecutor::with_channel(self.workers, self.queue_max, SyncSender(tx), rx)
+        LocalTaskExecQueue::with_channel(self.workers, self.queue_max, SyncSender(tx), rx)
     }
 }
 
@@ -102,8 +102,13 @@ impl<Tx, Rx, D> ChannelLocalBuilder<Tx, Rx, D>
         Rx: futures::Stream<Item=(D, LocalTaskType)> + Unpin,
 {
     #[inline]
-    pub fn build(self) -> (LocalExecutor<Tx, (), D>, impl futures::Future<Output=()>) {
-        LocalExecutor::with_channel(
+    pub fn build(
+        self,
+    ) -> (
+        LocalTaskExecQueue<Tx, (), D>,
+        impl futures::Future<Output=()>,
+    ) {
+        LocalTaskExecQueue::with_channel(
             self.builder.workers,
             self.builder.queue_max,
             self.tx,
@@ -127,11 +132,11 @@ impl<Tx, Rx, D> GroupChannelLocalBuilder<Tx, Rx, D>
         Rx: futures::Stream<Item=((), LocalTaskType)> + Unpin,
 {
     #[inline]
-    pub fn build<G>(self) -> (LocalExecutor<Tx, G>, impl futures::Future<Output=()>)
+    pub fn build<G>(self) -> (LocalTaskExecQueue<Tx, G>, impl futures::Future<Output=()>)
         where
             G: Hash + Eq + Clone + Debug + Sync + 'static,
     {
-        LocalExecutor::with_channel(
+        LocalTaskExecQueue::with_channel(
             self.builder.builder.workers,
             self.builder.builder.queue_max,
             self.builder.tx,

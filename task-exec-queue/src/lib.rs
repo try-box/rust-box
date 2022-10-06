@@ -12,15 +12,11 @@ use futures::task::AtomicWaker;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 
-pub use builder::{
-    Builder, ChannelBuilder, GroupBuilder, GroupChannelBuilder, SpawnDefaultExt, SpawnExt,
-};
-pub use exec::{Executor, TaskType};
-pub use local::LocalExecutor;
+pub use builder::{Builder, SpawnDefaultExt, SpawnExt};
+pub use exec::{TaskExecQueue, TaskType};
+pub use local::LocalTaskExecQueue;
 pub use local::LocalTaskType;
-pub use local_builder::{
-    ChannelLocalBuilder, GroupChannelLocalBuilder, LocalBuilder, LocalSpawnExt, SyncSender,
-};
+pub use local_builder::{LocalBuilder, LocalSpawnExt, SyncSender};
 pub use local_spawner::{LocalGroupSpawner, LocalSpawner};
 pub use spawner::{GroupSpawner, Spawner};
 
@@ -121,12 +117,12 @@ impl Future for PendingOnce {
     }
 }
 
-struct GroupTaskQueue<TT> {
+struct GroupTaskExecQueue<TT> {
     tasks: VecDeque<TT>,
     is_running: bool,
 }
 
-impl<TT> GroupTaskQueue<TT> {
+impl<TT> GroupTaskExecQueue<TT> {
     #[inline]
     fn new() -> Self {
         Self {
@@ -241,22 +237,22 @@ pub(crate) fn assert_future<T, F>(future: F) -> F
     future
 }
 
-static DEFAULT_EXECUTOR: OnceCell<Executor> = OnceCell::new();
+static DEFAULT_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
 
-pub fn set_default(exec: Executor) -> Result<(), Executor> {
-    DEFAULT_EXECUTOR.set(exec)
+pub fn set_default(queue: TaskExecQueue) -> Result<(), TaskExecQueue> {
+    DEFAULT_EXEC_QUEUE.set(queue)
 }
 
 pub fn init_default() -> impl futures::Future<Output=()> {
-    let (exec, runner) = Builder::default().workers(100).queue_max(100_000).build();
-    DEFAULT_EXECUTOR.set(exec).ok().unwrap();
+    let (queue, runner) = Builder::default().workers(100).queue_max(100_000).build();
+    DEFAULT_EXEC_QUEUE.set(queue).ok().unwrap();
     runner
 }
 
-pub fn default() -> &'static Executor {
-    DEFAULT_EXECUTOR
+pub fn default() -> &'static TaskExecQueue {
+    DEFAULT_EXEC_QUEUE
         .get()
-        .expect("default executor must be set first")
+        .expect("default task execution queue must be set first")
 }
 
 #[test]

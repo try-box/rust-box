@@ -1,36 +1,36 @@
 [package]
 name = "rust-box"
-version = "0.3.3"
+version = "0.4.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box"
 homepage = "https://github.com/try-box/rust-box"
 description = "This crate provides an odd set of tools for Rust programming"
-keywords = ["queue", "stream", "sender", "limiter", "executor"]
+keywords = ["queue", "stream", "sender", "limiter", "task"]
 exclude = ["examples"]
 
 
 [features]
-default = ["queue-ext", "stream-ext", "task-executor"]
+default = ["queue-ext", "stream-ext", "task-exec-queue"]
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
-task-executor-rate = ["task-executor/rate"]
+task-exec-queue-rate = ["task-exec-queue/rate"]
 
 [dependencies]
 queue-ext = { version = "0.3.0", path = "./queue-ext", default-features = false, optional = true }
 stream-ext = { version = "0.2.2", path = "./stream-ext", default-features = false, optional = true }
-task-executor = { version = "0.3.3", path = "./task-executor", default-features = false, optional = true }
+task-exec-queue = { version = "0.4.0", path = "./task-exec-queue", default-features = false, optional = true }
 
 [workspace]
 members = [
     ".",
     "queue-ext",
     "stream-ext",
-    "task-executor",
+    "task-exec-queue",
 ]
 
 [patch.crates-io]
 stream-ext = { path = "stream-ext" }
 queue-ext = { path = "queue-ext" }
-task-executor = { path = "task-executor" }
+task-exec-queue = { path = "task-exec-queue" }

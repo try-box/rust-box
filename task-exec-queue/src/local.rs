@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::Poll;
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use futures::channel::mpsc;
 use futures::task::AtomicWaker;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
@@ -17,16 +16,16 @@ use update_rate::{DiscreteRateCounter, RateCounter};
 use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
-    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskQueue, IndexSet,
-    PendingOnce, Spawner,
+    assert_future, close::LocalClose, Counter, Error, ErrorType, flush::LocalFlush,
+    GroupTaskExecQueue, IndexSet, local_builder::SyncSender, LocalSpawner, PendingOnce,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskQueue<TaskType>>>>>;
+type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskExecQueue<LocalTaskType>>>>>;
 
-pub type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
+pub type LocalTaskType = Box<dyn std::future::Future<Output=()> + 'static + Unpin>;
 
-pub struct Executor<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
+pub struct LocalTaskExecQueue<Tx = SyncSender, G = (), D = ()> {
     pub(crate) tx: Tx,
     workers: usize,
     queue_max: isize,
@@ -44,7 +43,7 @@ pub struct Executor<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     _d: std::marker::PhantomData<D>,
 }
 
-impl<Tx, G, D> Clone for Executor<Tx, G, D>
+impl<Tx, G, D> Clone for LocalTaskExecQueue<Tx, G, D>
     where
         Tx: Clone,
 {
@@ -68,10 +67,10 @@ impl<Tx, G, D> Clone for Executor<Tx, G, D>
     }
 }
 
-impl<Tx, G, D> Executor<Tx, G, D>
+impl<Tx, G, D> LocalTaskExecQueue<Tx, G, D>
     where
-        Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Tx: Clone + Sink<(D, LocalTaskType)> + Unpin + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
     pub(crate) fn with_channel<Rx>(
@@ -81,7 +80,7 @@ impl<Tx, G, D> Executor<Tx, G, D>
         rx: Rx,
     ) -> (Self, impl Future<Output=()>)
         where
-            Rx: Stream<Item=(D, TaskType)> + Unpin,
+            Rx: Stream<Item=(D, LocalTaskType)> + Unpin,
     {
         let exec = Self {
             tx,
@@ -103,20 +102,20 @@ impl<Tx, G, D> Executor<Tx, G, D>
     }
 
     #[inline]
-    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
+    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> LocalSpawner<'_, T, Tx, G, D>
         where
             D: Clone,
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+            T: Future + 'static,
+            T::Output: 'static,
     {
-        let fut = Spawner::new(self, msg, name);
+        let fut = LocalSpawner::new(self, msg, name);
         assert_future::<Result<(), _>, _>(fut)
     }
 
     #[inline]
-    pub fn flush(&self) -> Flush<Tx, D> {
+    pub fn flush(&self) -> LocalFlush<Tx, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
-        Flush::new(
+        LocalFlush::new(
             self.tx.clone(),
             self.waiting_count.clone(),
             self.active_count.clone(),
@@ -126,10 +125,10 @@ impl<Tx, G, D> Executor<Tx, G, D>
     }
 
     #[inline]
-    pub fn close(&self) -> Close<Tx, D> {
+    pub fn close(&self) -> LocalClose<Tx, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
         self.is_closed.store(true, Ordering::SeqCst);
-        Close::new(
+        LocalClose::new(
             self.tx.clone(),
             self.waiting_count.clone(),
             self.active_count.clone(),
@@ -181,7 +180,7 @@ impl<Tx, G, D> Executor<Tx, G, D>
 
     async fn run<Rx>(self, mut task_rx: Rx)
         where
-            Rx: Stream<Item=(D, TaskType)> + Unpin,
+            Rx: Stream<Item=(D, LocalTaskType)> + Unpin,
     {
         let exec = self;
         let idle_waker = Arc::new(AtomicWaker::new());
@@ -260,27 +259,31 @@ impl<Tx, G, D> Executor<Tx, G, D>
         };
 
         futures::future::join(tasks_bus, futures::future::join_all(rxs)).await;
-        log::info!("exit task executor");
+        log::info!("exit local task execution queue");
     }
 }
 
-impl<Tx, G> Executor<Tx, G, ()>
+impl<Tx, G> LocalTaskExecQueue<Tx, G, ()>
     where
-        Tx: Clone + Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        Tx: Clone + Sink<((), LocalTaskType)> + Unpin + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, Tx, G, ()>
+    pub fn spawn<T>(&mut self, msg: T) -> LocalSpawner<'_, T, Tx, G, ()>
         where
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+            T: Future + 'static,
+            T::Output: 'static,
     {
-        let fut = Spawner::new(self, msg, ());
+        let fut = LocalSpawner::new(self, msg, ());
         assert_future::<Result<(), _>, _>(fut)
     }
 
     #[inline]
-    pub(crate) async fn group_send(&self, name: G, task: TaskType) -> Result<(), Error<TaskType>> {
+    pub(crate) async fn group_send(
+        &self,
+        name: G,
+        task: LocalTaskType,
+    ) -> Result<(), Error<LocalTaskType>> {
         if self.is_closed() {
             return Err(Error::SendError(ErrorType::Closed(Some(task))));
         }
@@ -288,7 +291,7 @@ impl<Tx, G> Executor<Tx, G, ()>
         let gt_queue = self
             .group_channels
             .entry(name.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskQueue::new())))
+            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskExecQueue::new())))
             .value()
             .clone();
 
@@ -310,7 +313,7 @@ impl<Tx, G> Executor<Tx, G, ()>
                     task.await;
                     exec.active_count.dec();
                     loop {
-                        let task: Option<TaskType> = task_rx.lock().pop();
+                        let task: Option<LocalTaskType> = task_rx.lock().pop();
                         if let Some(task) = task {
                             exec.active_count.inc();
                             task.await;
@@ -345,7 +348,7 @@ impl<Tx, G> Executor<Tx, G, ()>
 }
 
 #[derive(Clone)]
-struct OneValue(Arc<RwLock<Option<TaskType>>>);
+struct OneValue(Arc<RwLock<Option<LocalTaskType>>>);
 
 unsafe impl Sync for OneValue {}
 
@@ -358,12 +361,12 @@ impl OneValue {
     }
 
     #[inline]
-    fn set(&self, val: TaskType) -> Option<TaskType> {
+    fn set(&self, val: LocalTaskType) -> Option<LocalTaskType> {
         self.0.write().replace(val)
     }
 
     #[inline]
-    fn take(&self) -> Option<TaskType> {
+    fn take(&self) -> Option<LocalTaskType> {
         self.0.write().take()
     }
 

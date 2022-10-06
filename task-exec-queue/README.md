@@ -1,20 +1,20 @@
-# Task Executor
+# Task Execution Queue
 
 English | [简体中文](./README-CN.md)
 
-*Task Executor* Task executors that control the number of parallel executions. Usually, ordinary asynchronous tasks can
-be executed directly using Tokio or async-std; however, in some special business scenarios, we need to perform a certain
-type of tasks in batches, and control the number of concurrent tasks of this type. Using spawn() directly can easily
-lead to excessive load and exhaustion of resources such as CPU or memory. this executor was developed to solve such
-problems.
+*Task Execution Queue* A task execution queue. Can limit the number of concurrent tasks and execution order of the same
+type of tasks can be controlled. Generally, asynchronous tasks can be executed directly using Tokio or async-std;
+However, in some special business scenarios, when we need to execute tasks in batches and control the concurrent number
+of tasks, using spawn() directly can easily lead to excessive load and exhaustion of resources such as CPU or memory;
+This Crate is developed to solve such problems.
 
 ## Features
 
 - Execute the tasks;
 - Execute the tasks and return results;
-- Control the number of concurrently executed tasks;
-- Support task queue;
-- The same grouped tasks are executed sequentially;
+- Limit the number of concurrent tasks
+- Task queue;
+- Sequential execution of the same type of tasks;
 - Support Local tasks
 
 ## Plan
@@ -26,22 +26,23 @@ problems.
 ```rust
 fn main() {
     use async_std::task::spawn;
-    use rust_box::task_executor::{init_default, default, SpawnDefaultExt};
+    use rust_box::task_exec_queue::{init_default, default, SpawnDefaultExt};
 
     let task_runner = init_default();
-    let global = async move{
+    let root_fut = async move {
         spawn(async {
             //start executor
             task_runner.await;
         });
-        //execute future ...
+
+        //execute task ...
         let _ = async {
             println!("hello world!");
         }.spawn().await;
 
         default().flush().await;
     };
-    async_std::task::block_on(global);
+    async_std::task::block_on(root_fut);
 }
 
 ```
@@ -51,22 +52,23 @@ fn main() {
 ```rust
 fn main() {
     use async_std::task::spawn;
-    use rust_box::task_executor::{Builder, SpawnExt};
+    use rust_box::task_exec_queue::{Builder, SpawnExt};
     let (exec, task_runner) = Builder::default().workers(10).queue_max(100).build();
-    let global = async move{
+    let root_fut = async move {
         spawn(async {
             //start executor
             task_runner.await;
         });
-        //execute future and return result...
+
+        //execute task and return result...
         let res = async {
             "hello world!"
         }.spawn(&exec).result().await;
-        println!("return result: {:?}", res.ok());
+        println!("result: {:?}", res.ok());
 
         exec.flush().await;
     };
-    async_std::task::block_on(global);
+    async_std::task::block_on(root_fut);
 }
 
 ```
@@ -76,18 +78,17 @@ fn main() {
 ```rust
 fn main() {
     use async_std::task::spawn;
-    use rust_box::task_executor::{Builder, SpawnExt};
+    use rust_box::task_exec_queue::{Builder, SpawnExt};
 
     let (exec, task_runner) =
         Builder::default().workers(10).queue_max(100).group().build::<&str>();
-    
-    let global = async move {
+    let root_fut = async move {
         spawn(async {
             //start executor
             task_runner.await;
         });
 
-        //execute future ...
+        //execute task ...
         let _res = async move {
             println!("hello world!");
         }.spawn(&exec).group("g1").await;
@@ -100,11 +101,11 @@ fn main() {
         exec.flush().await;
         println!("exec.actives: {}, waitings: {}, completeds: {}", exec.active_count(), exec.waiting_count(), exec.completed_count());
     };
-    async_std::task::block_on(global);
+    async_std::task::block_on(root_fut);
 }
 
 ```
 
 ### More Examples
 
-- [task-executor-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-executor-test.rs)
+- [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)

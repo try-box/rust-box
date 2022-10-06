@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::Poll;
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::channel::mpsc;
 use futures::task::AtomicWaker;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
@@ -16,16 +17,16 @@ use update_rate::{DiscreteRateCounter, RateCounter};
 use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
-    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush,
-    GroupTaskQueue, IndexSet, local_builder::SyncSender, LocalSpawner, PendingOnce,
+    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskExecQueue,
+    IndexSet, PendingOnce, Spawner,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskQueue<LocalTaskType>>>>>;
+type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskExecQueue<TaskType>>>>>;
 
-pub type LocalTaskType = Box<dyn std::future::Future<Output=()> + 'static + Unpin>;
+pub type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
 
-pub struct LocalExecutor<Tx = SyncSender, G = (), D = ()> {
+pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     pub(crate) tx: Tx,
     workers: usize,
     queue_max: isize,
@@ -43,7 +44,7 @@ pub struct LocalExecutor<Tx = SyncSender, G = (), D = ()> {
     _d: std::marker::PhantomData<D>,
 }
 
-impl<Tx, G, D> Clone for LocalExecutor<Tx, G, D>
+impl<Tx, G, D> Clone for TaskExecQueue<Tx, G, D>
     where
         Tx: Clone,
 {
@@ -67,10 +68,10 @@ impl<Tx, G, D> Clone for LocalExecutor<Tx, G, D>
     }
 }
 
-impl<Tx, G, D> LocalExecutor<Tx, G, D>
+impl<Tx, G, D> TaskExecQueue<Tx, G, D>
     where
-        Tx: Clone + Sink<(D, LocalTaskType)> + Unpin + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Sync + 'static,
+        Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn with_channel<Rx>(
@@ -80,7 +81,7 @@ impl<Tx, G, D> LocalExecutor<Tx, G, D>
         rx: Rx,
     ) -> (Self, impl Future<Output=()>)
         where
-            Rx: Stream<Item=(D, LocalTaskType)> + Unpin,
+            Rx: Stream<Item=(D, TaskType)> + Unpin,
     {
         let exec = Self {
             tx,
@@ -102,13 +103,13 @@ impl<Tx, G, D> LocalExecutor<Tx, G, D>
     }
 
     #[inline]
-    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> LocalSpawner<'_, T, Tx, G, D>
+    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
         where
             D: Clone,
-            T: Future + 'static,
-            T::Output: 'static,
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
     {
-        let fut = LocalSpawner::new(self, msg, name);
+        let fut = Spawner::new(self, msg, name);
         assert_future::<Result<(), _>, _>(fut)
     }
 
@@ -180,7 +181,7 @@ impl<Tx, G, D> LocalExecutor<Tx, G, D>
 
     async fn run<Rx>(self, mut task_rx: Rx)
         where
-            Rx: Stream<Item=(D, LocalTaskType)> + Unpin,
+            Rx: Stream<Item=(D, TaskType)> + Unpin,
     {
         let exec = self;
         let idle_waker = Arc::new(AtomicWaker::new());
@@ -259,31 +260,27 @@ impl<Tx, G, D> LocalExecutor<Tx, G, D>
         };
 
         futures::future::join(tasks_bus, futures::future::join_all(rxs)).await;
-        log::info!("exit local task executor");
+        log::info!("exit task execution queue");
     }
 }
 
-impl<Tx, G> LocalExecutor<Tx, G, ()>
+impl<Tx, G> TaskExecQueue<Tx, G, ()>
     where
-        Tx: Clone + Sink<((), LocalTaskType)> + Unpin + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Sync + 'static,
+        Tx: Clone + Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> LocalSpawner<'_, T, Tx, G, ()>
+    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, Tx, G, ()>
         where
-            T: Future + 'static,
-            T::Output: 'static,
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
     {
-        let fut = LocalSpawner::new(self, msg, ());
+        let fut = Spawner::new(self, msg, ());
         assert_future::<Result<(), _>, _>(fut)
     }
 
     #[inline]
-    pub(crate) async fn group_send(
-        &self,
-        name: G,
-        task: LocalTaskType,
-    ) -> Result<(), Error<LocalTaskType>> {
+    pub(crate) async fn group_send(&self, name: G, task: TaskType) -> Result<(), Error<TaskType>> {
         if self.is_closed() {
             return Err(Error::SendError(ErrorType::Closed(Some(task))));
         }
@@ -291,7 +288,7 @@ impl<Tx, G> LocalExecutor<Tx, G, ()>
         let gt_queue = self
             .group_channels
             .entry(name.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskQueue::new())))
+            .or_insert_with(|| Arc::new(Mutex::new(GroupTaskExecQueue::new())))
             .value()
             .clone();
 
@@ -313,7 +310,7 @@ impl<Tx, G> LocalExecutor<Tx, G, ()>
                     task.await;
                     exec.active_count.dec();
                     loop {
-                        let task: Option<LocalTaskType> = task_rx.lock().pop();
+                        let task: Option<TaskType> = task_rx.lock().pop();
                         if let Some(task) = task {
                             exec.active_count.inc();
                             task.await;
@@ -348,7 +345,7 @@ impl<Tx, G> LocalExecutor<Tx, G, ()>
 }
 
 #[derive(Clone)]
-struct OneValue(Arc<RwLock<Option<LocalTaskType>>>);
+struct OneValue(Arc<RwLock<Option<TaskType>>>);
 
 unsafe impl Sync for OneValue {}
 
@@ -361,12 +358,12 @@ impl OneValue {
     }
 
     #[inline]
-    fn set(&self, val: LocalTaskType) -> Option<LocalTaskType> {
+    fn set(&self, val: TaskType) -> Option<TaskType> {
         self.0.write().replace(val)
     }
 
     #[inline]
-    fn take(&self) -> Option<LocalTaskType> {
+    fn take(&self) -> Option<TaskType> {
         self.0.write().take()
     }
 

@@ -1,13 +1,13 @@
 [package]
-name = "task-executor"
-version = "0.3.3"
+name = "task-exec-queue"
+version = "0.4.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
-description = "A task executor"
-repository = "https://github.com/try-box/rust-box/tree/main/task-executor"
-homepage = "https://github.com/try-box/rust-box/tree/main/task-executor"
+description = "A asynchronous task execution queue"
+repository = "https://github.com/try-box/rust-box/tree/main/task-exec-queue"
+homepage = "https://github.com/try-box/rust-box/tree/main/task-exec-queue"
 license = "MIT OR Apache-2.0"
-keywords = ["task", "executor", "tokio", "async-std"]
+keywords = ["task", "queue", "tokio", "async-std"]
 categories = ["asynchronous", "concurrency"]
 
 exclude = [
