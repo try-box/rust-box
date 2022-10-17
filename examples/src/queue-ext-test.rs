@@ -135,18 +135,20 @@ async fn test_with_linked_hash_map() {
         }
     });
 
-    let mut tx = s.clone().queue_sender::<(i32, i32), _, _>(|s, act| match act {
-        Action::Send((key, val)) => {
-            let mut s = s.write();
-            if s.contains_key(&key) {
-                s.remove(&key);
+    let mut tx = s
+        .clone()
+        .queue_sender::<(i32, i32), _, _>(|s, act| match act {
+            Action::Send((key, val)) => {
+                let mut s = s.write();
+                if s.contains_key(&key) {
+                    s.remove(&key);
+                }
+                s.insert(key, val);
+                Reply::Send(())
             }
-            s.insert(key, val);
-            Reply::Send(())
-        }
-        Action::IsFull => Reply::IsFull(false),
-        Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
-    });
+            Action::IsFull => Reply::IsFull(false),
+            Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
+        });
 
     spawn_local(async move {
         for i in 0..100 {

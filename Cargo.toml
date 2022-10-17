@@ -1,26 +1,28 @@
 [package]
 name = "rust-box"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box"
 homepage = "https://github.com/try-box/rust-box"
 description = "This crate provides an odd set of tools for Rust programming"
-keywords = ["queue", "stream", "sender", "limiter", "task"]
+keywords = ["queue", "stream", "sender", "limiter", "task", "event", "notify"]
 exclude = ["examples"]
 
 
 [features]
-default = ["queue-ext", "stream-ext", "task-exec-queue"]
+default = ["queue-ext", "stream-ext", "task-exec-queue", "event"]
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
 task-exec-queue-rate = ["task-exec-queue/rate"]
+event = ["event-notify"]
 
 [dependencies]
 queue-ext = { version = "0.3.0", path = "./queue-ext", default-features = false, optional = true }
 stream-ext = { version = "0.2.2", path = "./stream-ext", default-features = false, optional = true }
 task-exec-queue = { version = "0.4.0", path = "./task-exec-queue", default-features = false, optional = true }
+event-notify = { version = "0.1.0", path = "./event", default-features = false, optional = true }
 
 [workspace]
 members = [
@@ -28,9 +30,11 @@ members = [
     "queue-ext",
     "stream-ext",
     "task-exec-queue",
+    "event",
 ]
 
 [patch.crates-io]
 stream-ext = { path = "stream-ext" }
 queue-ext = { path = "queue-ext" }
 task-exec-queue = { path = "task-exec-queue" }
+event-notify = { path = "event" }

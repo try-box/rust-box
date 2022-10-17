@@ -1,9 +1,7 @@
 [package]
 name = "examples"
-version = "0.3.0"
+version = "0.4.1"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
 name = "stream-ext-test"
@@ -16,6 +14,11 @@ path = "src/queue-ext-test.rs"
 [[bin]]
 name = "task-exec-queue-test"
 path = "src/task-exec-queue-test.rs"
+
+[[bin]]
+name = "event-test"
+path = "src/event-test.rs"
+
 
 [dependencies]
 rust-box = { path = "../", features = ["stream-ext-leaky-bucket", "stream-ext-governor", "task-exec-queue-rate"] }

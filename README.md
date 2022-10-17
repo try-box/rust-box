@@ -12,14 +12,17 @@ English | [简体中文](./README-CN.md)
 
 The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcrates:
 
-* [`stream-ext`](stream-ext)
+* [`stream-ext`](https://github.com/try-box/rust-box/tree/main/stream-ext)
   An extension trait for Streams that provides a variety of convenient combinator functions.
-* [`queue-ext`](queue-ext)
+* [`queue-ext`](https://github.com/try-box/rust-box/tree/main/queue-ext)
   The extended feature of the queue can convert the pop() function of the queue to Stream and the push() function to
   Sender.
-* [`task-exec-queue`](task-exec-queue)
-  A task execution queue. Can limit the number of concurrent tasks and execution order of the same
-  type of tasks can be controlled.
+* [`task-exec-queue`](https://github.com/try-box/rust-box/tree/main/task-exec-queue)
+  A task execution queue. Can limit the number of concurrent tasks and execution order of the same type of tasks can be
+  controlled.
+* [`event`](https://github.com/try-box/rust-box/tree/main/event)
+  Event
+
 
 ## Usage
 
@@ -35,6 +38,7 @@ rust-box = "0.4"
 - [queue-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/queue-ext-test.rs)
 - [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
 - [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)
+- [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
 
 ## License
 
