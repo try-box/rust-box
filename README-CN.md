@@ -20,7 +20,8 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   一个任务执行队列。可限制任务并发执行数量，可控制同一类任务执行顺序。
 * [`event`](https://github.com/try-box/rust-box/tree/main/event)
   事件
-
+* [`std-ext`](https://github.com/try-box/rust-box/tree/main/std-ext)
+  扩展标准库功能，使标准库用起来更方便
 
 ## 使用
 
@@ -28,7 +29,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 
 ```toml
 [dependencies]
-rust-box = "0.4"
+rust-box = "0.5"
 ```
 
 ## 例子
@@ -37,6 +38,7 @@ rust-box = "0.4"
 - [stream-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/stream-ext-test.rs)
 - [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)
 - [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
+- [std-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/std-ext-test.rs)
 
 ## License
 
