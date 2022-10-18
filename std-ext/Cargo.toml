@@ -1,0 +1,15 @@
+[package]
+name = "std-ext"
+version = "0.1.0"
+authors = ["try <trywen@qq.com>"]
+edition = "2018"
+rust-version = "1.38"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/std-ext"
+homepage = "https://github.com/try-box/rust-box/tree/main/std-ext"
+description = "Extend the standard library functionality"
+keywords = ["std"]
+categories = []
+
+[dependencies]
+

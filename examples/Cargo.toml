@@ -19,9 +19,13 @@ path = "src/task-exec-queue-test.rs"
 name = "event-test"
 path = "src/event-test.rs"
 
+[[bin]]
+name = "std-ext-test"
+path = "src/std-ext-test.rs"
+
 
 [dependencies]
-rust-box = { path = "../", features = ["stream-ext-leaky-bucket", "stream-ext-governor", "task-exec-queue-rate"] }
+rust-box = { path = "../", features = ["full"] }
 
 futures = "0.3"
 futures-lite = "1.12"

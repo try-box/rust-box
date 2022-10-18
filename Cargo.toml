@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,8 @@ exclude = ["examples"]
 
 
 [features]
-default = ["queue-ext", "stream-ext", "task-exec-queue", "event"]
+default = []
+full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "stream-ext-leaky-bucket", "stream-ext-governor", "task-exec-queue-rate"]
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
 task-exec-queue-rate = ["task-exec-queue/rate"]
@@ -23,6 +24,7 @@ queue-ext = { version = "0.3.0", path = "./queue-ext", default-features = false,
 stream-ext = { version = "0.2.2", path = "./stream-ext", default-features = false, optional = true }
 task-exec-queue = { version = "0.4.0", path = "./task-exec-queue", default-features = false, optional = true }
 event-notify = { version = "0.1.0", path = "./event", default-features = false, optional = true }
+std-ext = { version = "0.1.0", path = "./std-ext", default-features = false, optional = true }
 
 [workspace]
 members = [
@@ -31,6 +33,7 @@ members = [
     "stream-ext",
     "task-exec-queue",
     "event",
+    "std-ext",
 ]
 
 [patch.crates-io]
@@ -38,3 +41,4 @@ stream-ext = { path = "stream-ext" }
 queue-ext = { path = "queue-ext" }
 task-exec-queue = { path = "task-exec-queue" }
 event-notify = { path = "event" }
+std-ext = { path = "std-ext" }
