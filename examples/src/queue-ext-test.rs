@@ -1,14 +1,15 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
-use futures::{AsyncWriteExt, FutureExt, SinkExt, stream, StreamExt};
-use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
 use std::collections::*;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+use futures::{AsyncWriteExt, FutureExt, SinkExt, stream, StreamExt};
+use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
 use tokio::task::spawn_local;
 
 fn main() {
@@ -43,8 +44,6 @@ fn main() {
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), runner);
     // tokio::runtime::Runtime::new().unwrap().block_on(runner);
 }
-
-
 
 async fn test_with_queue_stream() {
     use parking_lot::RwLock;
@@ -264,18 +263,16 @@ async fn test_with_crossbeam_arrqueue() {
     }
 }
 
-
 async fn test_queue_channel_with_segqueue() {
     use crossbeam_queue::SegQueue;
 
     let (mut tx, mut rx) = Rc::new(SegQueue::default()).queue_channel(
-        |s, act| {
-            match act {
-                Action::Send(item) => Reply::Send(s.push(item)),
-                Action::IsFull => Reply::IsFull(false),
-                Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
-            }
-        },|s, _| {
+        |s, act| match act {
+            Action::Send(item) => Reply::Send(s.push(item)),
+            Action::IsFull => Reply::IsFull(false),
+            Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
+        },
+        |s, _| {
             if s.is_empty() {
                 Poll::Pending
             } else {
@@ -284,7 +281,8 @@ async fn test_queue_channel_with_segqueue() {
                     None => Poll::Pending,
                 }
             }
-    });
+        },
+    );
 
     spawn_local(async move {
         for i in 0..100 {

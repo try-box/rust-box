@@ -1,12 +1,13 @@
 #![allow(unused_must_use)]
 #![allow(dead_code)]
 
-use crossbeam_queue::SegQueue;
-use futures::{Sink, Stream};
-use rust_box::queue_ext::{Action, QueueExt, Reply};
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
+
+use crossbeam_queue::SegQueue;
+use futures::{Sink, Stream};
+use rust_box::queue_ext::{Action, QueueExt, Reply};
 
 fn main() {
     std::env::set_var("RUST_LOG", "task_exec_queue_test=info");
@@ -76,7 +77,7 @@ fn test_channel() {
     use rust_box::task_exec_queue::{Builder, SpawnExt};
     let queue_max = 100;
     let (tx, rx) = mpsc::channel(queue_max);
-    let (mut exec, task_runner) = Builder::default().workers(10).with_channel(tx, rx).build();
+    let (exec, task_runner) = Builder::default().workers(10).with_channel(tx, rx).build();
     let root_fut = async move {
         spawn(async {
             //start executor
@@ -173,7 +174,7 @@ fn test_channel_with_name() {
     use rust_box::task_exec_queue::{Builder, SpawnExt};
     let queue_max = 100;
     let (tx, rx) = channel_with_name(queue_max);
-    let (mut exec, task_runner) = Builder::default().workers(10).with_channel(tx, rx).build();
+    let (exec, task_runner) = Builder::default().workers(10).with_channel(tx, rx).build();
     let root_fut = async move {
         spawn(async {
             //start executor
@@ -306,7 +307,7 @@ fn test_task_exec_queue() {
 
         spawn(async move {
             for i in 0..MAX_TASKS {
-                let mut mailbox = mailbox.clone();
+                let mailbox = mailbox.clone();
                 spawn(async move {
                     //send ...
                     let _res = mailbox
@@ -426,7 +427,7 @@ fn test_group_bench() {
 
         let test_spawns = spawn(async move {
             for i in 0..MAX_TASKS {
-                let mut mailbox = mailbox.clone();
+                let mailbox = mailbox.clone();
                 spawn(async move {
                     //send ...
                     let _res = mailbox

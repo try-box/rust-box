@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use rust_box::std_ext::ArcExt;
 
 fn main() {
@@ -18,7 +19,6 @@ fn test_std_arc() {
     let arc_b = 1.arc();
     assert_eq!(arc_a, arc_b);
 }
-
 
 fn test_rwlock() {
     use rust_box::std_ext::RwLockExt;
@@ -56,7 +56,6 @@ fn test_async_rwlock() {
     };
     async_std::task::block_on(runner);
 }
-
 
 fn test_async_mutex() {
     use rust_box::std_ext::async_std::MutexExt;
