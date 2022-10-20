@@ -5,6 +5,7 @@ use std::task::{Context, Poll};
 
 use futures::{Future, Sink, SinkExt};
 use futures::channel::oneshot;
+use futures_lite::FutureExt;
 
 use crate::TaskType;
 
@@ -125,13 +126,71 @@ impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
             .sink
             .group_send(name, Box::new(Box::pin(task)))
             .boxed();
-        use futures_lite::FutureExt;
+
         if (futures::ready!(group_send.poll(cx))).is_err() {
             this.inner.sink.waiting_count.dec();
             Poll::Ready(Err(Error::SendError(ErrorType::Closed(None))))
         } else {
             Poll::Ready(Ok(()))
         }
+    }
+}
+
+pub struct TryGroupSpawner<'a, Item, Tx, G> {
+    inner: GroupSpawner<'a, Item, Tx, G>,
+}
+
+impl<Item, Tx, G> Unpin for TryGroupSpawner<'_, Item, Tx, G> {}
+
+impl<'a, Item, Tx, G> TryGroupSpawner<'a, Item, Tx, G>
+    where
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    #[inline]
+    pub(crate) fn new(inner: Spawner<'a, Item, Tx, G, ()>, name: G) -> Self {
+        Self {
+            inner: GroupSpawner {
+                inner,
+                name: Some(name),
+            },
+        }
+    }
+
+    #[inline]
+    pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
+    {
+        if self.inner.inner.sink.is_full() {
+            return Err(Error::TrySendError(ErrorType::Full(
+                self.inner.inner.item.take(),
+            )));
+        }
+        self.inner.result().await
+    }
+}
+
+impl<Item, Tx, G> Future for TryGroupSpawner<'_, Item, Tx, G>
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    type Output = Result<(), Error<Item>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        if this.inner.inner.sink.is_full() {
+            return Poll::Ready(Err(Error::TrySendError(ErrorType::Full(
+                this.inner.inner.item.take(),
+            ))));
+        }
+
+        this.inner.poll(cx)
     }
 }
 
@@ -269,5 +328,76 @@ impl<Item, Tx, G, D> Future for Spawner<'_, Item, Tx, G, D>
                 Error::SendError(ErrorType::Closed(None))
             })?;
         Poll::Ready(Ok(()))
+    }
+}
+
+pub struct TrySpawner<'a, Item, Tx, G, D> {
+    inner: Spawner<'a, Item, Tx, G, D>,
+}
+
+impl<'a, Item, Tx, G, D> Unpin for TrySpawner<'a, Item, Tx, G, D> {}
+
+impl<'a, Item, Tx, G> TrySpawner<'a, Item, Tx, G, ()>
+    where
+        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    #[inline]
+    pub fn group(self, name: G) -> TryGroupSpawner<'a, Item, Tx, G>
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
+    {
+        let fut = TryGroupSpawner::new(self.inner, name);
+        assert_future::<Result<(), _>, _>(fut)
+    }
+}
+
+impl<'a, Item, Tx, G, D> TrySpawner<'a, Item, Tx, G, D>
+    where
+        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    #[inline]
+    pub(crate) fn new(sink: &'a TaskExecQueue<Tx, G, D>, item: Item, d: D) -> Self {
+        Self {
+            inner: Spawner {
+                sink,
+                item: Some(item),
+                d: Some(d),
+            },
+        }
+    }
+
+    #[inline]
+    pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
+        where
+            Item: Future + Send + 'static,
+            Item::Output: Send + 'static,
+    {
+        if self.inner.sink.is_full() {
+            return Err(Error::TrySendError(ErrorType::Full(self.inner.item.take())));
+        }
+        self.inner.result().await
+    }
+}
+
+impl<Item, Tx, G, D> Future for TrySpawner<'_, Item, Tx, G, D>
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
+        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+{
+    type Output = Result<(), Error<Item>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        if this.inner.sink.is_full() {
+            return Poll::Ready(Err(Error::TrySendError(ErrorType::Full(
+                this.inner.item.take(),
+            ))));
+        }
+        this.inner.poll(cx)
     }
 }
