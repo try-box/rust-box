@@ -23,9 +23,10 @@ fn main() {
             test_with_heep(),
         );
 
-        let test_futs2 = futures::future::join(
+        let test_futs2 = futures::future::join3(
             test_with_crossbeam_segqueue(),
             test_with_crossbeam_arrqueue(),
+            test_queue_channel_with_segqueue(),
         );
 
         futures::future::join(test_futs1, test_futs2).await;
@@ -36,11 +37,14 @@ fn main() {
         // test_with_heep().await;
         // test_with_crossbeam_segqueue().await;
         // test_with_crossbeam_arrqueue().await;
+        // test_queue_channel_with_segqueue().await;
     };
     // async_std::task::block_on(runner);
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), runner);
     // tokio::runtime::Runtime::new().unwrap().block_on(runner);
 }
+
+
 
 async fn test_with_queue_stream() {
     use parking_lot::RwLock;
@@ -257,5 +261,39 @@ async fn test_with_crossbeam_arrqueue() {
 
     while let Some(item) = s.next().await {
         log::info!("recv ArrayQueue: {:?}, len: {}", item, s.len());
+    }
+}
+
+
+async fn test_queue_channel_with_segqueue() {
+    use crossbeam_queue::SegQueue;
+
+    let (mut tx, mut rx) = Rc::new(SegQueue::default()).queue_channel(
+        |s, act| {
+            match act {
+                Action::Send(item) => Reply::Send(s.push(item)),
+                Action::IsFull => Reply::IsFull(false),
+                Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
+            }
+        },|s, _| {
+            if s.is_empty() {
+                Poll::Pending
+            } else {
+                match s.pop() {
+                    Some(m) => Poll::Ready(Some(m)),
+                    None => Poll::Pending,
+                }
+            }
+    });
+
+    spawn_local(async move {
+        for i in 0..100 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            tx.send(i).await.unwrap();
+        }
+    });
+
+    while let Some(item) = rx.next().await {
+        log::info!("test queue_channel: {:?}, len: {}", item, rx.len());
     }
 }
