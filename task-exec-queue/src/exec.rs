@@ -18,7 +18,7 @@ use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
     assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskExecQueue,
-    IndexSet, PendingOnce, Spawner,
+    IndexSet, PendingOnce, Spawner, TrySpawner,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -103,7 +103,18 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
     }
 
     #[inline]
-    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
+    pub fn try_spawn_with<T>(&self, msg: T, name: D) -> TrySpawner<'_, T, Tx, G, D>
+        where
+            D: Clone,
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        let fut = TrySpawner::new(self, msg, name);
+        assert_future::<Result<(), _>, _>(fut)
+    }
+
+    #[inline]
+    pub fn spawn_with<T>(&self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
         where
             D: Clone,
             T: Future + Send + 'static,
@@ -270,12 +281,22 @@ impl<Tx, G> TaskExecQueue<Tx, G, ()>
         G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> Spawner<'_, T, Tx, G, ()>
+    pub fn try_spawn<T>(&self, task: T) -> TrySpawner<'_, T, Tx, G, ()>
         where
             T: Future + Send + 'static,
             T::Output: Send + 'static,
     {
-        let fut = Spawner::new(self, msg, ());
+        let fut = TrySpawner::new(self, task, ());
+        assert_future::<Result<(), _>, _>(fut)
+    }
+
+    #[inline]
+    pub fn spawn<T>(&self, task: T) -> Spawner<'_, T, Tx, G, ()>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+    {
+        let fut = Spawner::new(self, task, ());
         assert_future::<Result<(), _>, _>(fut)
     }
 

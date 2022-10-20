@@ -17,7 +17,7 @@ use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
     assert_future, close::LocalClose, Counter, Error, ErrorType, flush::LocalFlush,
-    GroupTaskExecQueue, IndexSet, local_builder::SyncSender, LocalSpawner, PendingOnce,
+    GroupTaskExecQueue, IndexSet, local_builder::SyncSender, LocalSpawner, PendingOnce, TryLocalSpawner,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -102,7 +102,18 @@ impl<Tx, G, D> LocalTaskExecQueue<Tx, G, D>
     }
 
     #[inline]
-    pub fn spawn_with<T>(&mut self, msg: T, name: D) -> LocalSpawner<'_, T, Tx, G, D>
+    pub fn try_spawn_with<T>(&self, msg: T, name: D) -> TryLocalSpawner<'_, T, Tx, G, D>
+        where
+            D: Clone,
+            T: Future + 'static,
+            T::Output: 'static,
+    {
+        let fut = TryLocalSpawner::new(self, msg, name);
+        assert_future::<Result<(), _>, _>(fut)
+    }
+
+    #[inline]
+    pub fn spawn_with<T>(&self, msg: T, name: D) -> LocalSpawner<'_, T, Tx, G, D>
         where
             D: Clone,
             T: Future + 'static,
@@ -269,7 +280,17 @@ impl<Tx, G> LocalTaskExecQueue<Tx, G, ()>
         G: Hash + Eq + Clone + Debug + Sync + 'static,
 {
     #[inline]
-    pub fn spawn<T>(&mut self, msg: T) -> LocalSpawner<'_, T, Tx, G, ()>
+    pub fn try_spawn<T>(&self, msg: T) -> TryLocalSpawner<'_, T, Tx, G, ()>
+        where
+            T: Future + 'static,
+            T::Output: 'static,
+    {
+        let fut = TryLocalSpawner::new(self, msg, ());
+        assert_future::<Result<(), _>, _>(fut)
+    }
+
+    #[inline]
+    pub fn spawn<T>(&self, msg: T) -> LocalSpawner<'_, T, Tx, G, ()>
         where
             T: Future + 'static,
             T::Output: 'static,
