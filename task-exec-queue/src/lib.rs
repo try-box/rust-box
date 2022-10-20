@@ -17,8 +17,8 @@ pub use exec::{TaskExecQueue, TaskType};
 pub use local::LocalTaskExecQueue;
 pub use local::LocalTaskType;
 pub use local_builder::{LocalBuilder, LocalSpawnExt, SyncSender};
-pub use local_spawner::{LocalGroupSpawner, LocalSpawner};
-pub use spawner::{GroupSpawner, Spawner};
+pub use local_spawner::{LocalGroupSpawner, LocalSpawner, TryLocalGroupSpawner, TryLocalSpawner};
+pub use spawner::{GroupSpawner, Spawner, TryGroupSpawner, TrySpawner};
 
 mod builder;
 mod close;
