@@ -1,6 +1,6 @@
 [package]
 name = "task-exec-queue"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 description = "A asynchronous task execution queue"
@@ -20,7 +20,7 @@ default = []
 rate = ["update_rate"]
 
 [dependencies]
-queue-ext = { version = "0.3", path = "../queue-ext" }
+queue-ext = { version = "0.4", path = "../queue-ext" }
 futures = "0.3"
 futures-lite = "1.12"
 log = "0.4"
