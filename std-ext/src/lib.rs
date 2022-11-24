@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU64, AtomicUsize};
-use parking_lot::{RwLock, Mutex};
+pub use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard, Mutex, MutexGuard};
 
 pub mod async_std;
 
