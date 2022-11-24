@@ -13,4 +13,4 @@ categories = []
 
 [dependencies]
 parking_lot = "0.12"
-async-lock = "2.6"
+async-lock = "2.5"
