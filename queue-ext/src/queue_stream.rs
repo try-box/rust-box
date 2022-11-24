@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::Stream;
 use futures::task::AtomicWaker;
@@ -23,6 +24,7 @@ pin_project! {
         f: F,
         recv_task: Arc<AtomicWaker>,
         parked_queue: Arc<Mutex<VecDeque<std::task::Waker>>>,
+        closed: Arc<AtomicBool>,
         _item: PhantomData<Item>,
     }
 }
@@ -43,6 +45,7 @@ impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
             f: self.f.clone(),
             recv_task: self.recv_task.clone(),
             parked_queue: self.parked_queue.clone(),
+            closed: self.closed.clone(),
             _item: PhantomData,
         }
     }
@@ -67,8 +70,14 @@ impl<Q: Unpin, Item, F> QueueStream<Q, Item, F> {
             f,
             recv_task: Arc::new(AtomicWaker::new()),
             parked_queue: Arc::new(Mutex::new(VecDeque::default())),
+            closed: Arc::new(AtomicBool::new(false)),
             _item: PhantomData,
         }
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 }
 
@@ -81,6 +90,12 @@ impl<Q, Item, F> Waker for QueueStream<Q, Item, F> {
     #[inline]
     fn tx_park(&self, w: std::task::Waker) {
         self.parked_queue.lock().unwrap().push_back(w);
+    }
+
+    #[inline]
+    fn close_channel(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.rx_wake();
     }
 }
 
@@ -102,8 +117,12 @@ impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
                 Poll::Ready(msg)
             }
             Poll::Pending => {
-                this.recv_task.register(ctx.waker());
-                f(this.q.as_mut(), ctx)
+                if this.closed.load(Ordering::SeqCst) {
+                    Poll::Ready(None)
+                }else {
+                    this.recv_task.register(ctx.waker());
+                    f(this.q.as_mut(), ctx)
+                }
             }
         }
     }

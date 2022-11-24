@@ -16,6 +16,7 @@ mod queue_stream;
 pub trait Waker {
     fn rx_wake(&self);
     fn tx_park(&self, w: std::task::Waker);
+    fn close_channel(&self);
 }
 
 impl<T: ?Sized> QueueExt for T {}
@@ -82,12 +83,14 @@ pub enum Action<Item> {
     Send(Item),
     IsFull,
     IsEmpty,
+    Len,
 }
 
 pub enum Reply<R> {
     Send(R),
     IsFull(bool),
     IsEmpty(bool),
+    Len(usize),
 }
 
 pub type TrySendError<T> = SendError<T>;
@@ -95,7 +98,7 @@ pub type TrySendError<T> = SendError<T>;
 #[derive(Clone, PartialEq, Eq)]
 pub struct SendError<T> {
     kind: SendErrorKind,
-    val: T,
+    val: Option<T>,
 }
 
 impl<T> SendError<T> {
@@ -103,12 +106,12 @@ impl<T> SendError<T> {
     pub fn full(val: T) -> Self {
         SendError {
             kind: SendErrorKind::Full,
-            val,
+            val: Some(val),
         }
     }
 
     #[inline]
-    pub fn disconnected(val: T) -> Self {
+    pub fn disconnected(val: Option<T>) -> Self {
         SendError {
             kind: SendErrorKind::Disconnected,
             val,
@@ -127,7 +130,7 @@ impl<T> fmt::Debug for SendError<T> {
 impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_full() {
-            write!(f, "send failed because channel is full")
+            write!(f, "send failed because mpsc is full")
         } else {
             write!(f, "send failed because receiver is gone")
         }
@@ -144,7 +147,7 @@ pub enum SendErrorKind {
 impl<T: core::any::Any> std::error::Error for SendError<T> {}
 
 impl<T> SendError<T> {
-    /// Returns `true` if this error is a result of the channel being full.
+    /// Returns `true` if this error is a result of the mpsc being full.
     #[inline]
     pub fn is_full(&self) -> bool {
         matches!(self.kind, SendErrorKind::Full)
@@ -158,7 +161,7 @@ impl<T> SendError<T> {
 
     /// Returns the message that was attempted to be sent but failed.
     #[inline]
-    pub fn into_inner(self) -> T {
+    pub fn into_inner(self) -> Option<T> {
         self.val
     }
 }
