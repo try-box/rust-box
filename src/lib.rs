@@ -19,3 +19,7 @@ pub use task_exec_queue;
 #[cfg(feature = "std-ext")]
 pub use std_ext;
 
+#[doc(inline)]
+#[cfg(feature = "mpsc")]
+pub use mpsc;
+
