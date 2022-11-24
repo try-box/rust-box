@@ -129,6 +129,7 @@ fn get_queue_stream(max: i32) -> impl Stream<Item=i32> + Debug {
         Action::Send(item) => Reply::Send(s.push(item)),
         Action::IsFull => Reply::IsFull(false),
         Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
+        Action::Len => Reply::Len(s.len()),
     });
 
     spawn_local(async move {

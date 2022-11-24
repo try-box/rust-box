@@ -23,6 +23,9 @@ path = "src/event-test.rs"
 name = "std-ext-test"
 path = "src/std-ext-test.rs"
 
+[[bin]]
+name = "channel-test"
+path = "src/channel-test.rs"
 
 [dependencies]
 rust-box = { path = "../", features = ["full"] }
@@ -31,6 +34,8 @@ futures = "0.3"
 futures-lite = "1.12"
 futures-util = "0.3"
 linked-hash-map = "0.5"
+indexmap = { version = "1.9", features = ["std"] }
+fxhash = "0.2.1"
 log = "0.4"
 env_logger = "0.8.4"
 parking_lot = "0.12"

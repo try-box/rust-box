@@ -89,7 +89,7 @@ fn test_channel() {
 
         spawn(async move {
             let _res = async {
-                println!("with channel: hello world!");
+                println!("with mpsc: hello world!");
             }
                 .spawn(&exec1)
                 .result()
@@ -99,7 +99,7 @@ fn test_channel() {
         spawn(async move {
             let res = async {
                 sleep(Duration::from_micros(100)).await;
-                println!("with channel and result: hello world!");
+                println!("with mpsc and result: hello world!");
                 100
             }
                 .spawn(&exec2)
@@ -154,6 +154,7 @@ fn channel<'a, T>(cap: usize) -> (impl Sink<((), T)> + Clone, impl Stream<Item=(
             }
             Action::IsFull => Reply::IsFull(s.len() >= cap),
             Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
+            Action::Len => Reply::Len(s.len()),
         },
         |s, _| {
             if s.is_empty() {
@@ -247,6 +248,7 @@ fn channel_with_name<'a, T>(
             }
             Action::IsFull => Reply::IsFull(s.read().len() >= cap),
             Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
+            Action::Len => Reply::Len(s.read().len()),
         },
         |s, _| {
             let mut s = s.write();
