@@ -1,4 +1,4 @@
-use async_lock::{RwLock, Mutex};
+pub use async_lock::{RwLock, Mutex};
 
 impl<T: ?Sized> RwLockExt for T {}
 
