@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use std::time::Duration;
 use futures::{AsyncWriteExt, FutureExt, Sink, SinkExt, stream, StreamExt};
-use rust_box::mpsc::{segqueue_channel, vecdeque_channel, indexmap_channel, SendError};
+use rust_box::mpsc::{segqueue_channel, with_segqueue_channel, vecdeque_channel, indexmap_channel, SendError};
 use tokio::task::spawn;
 use tokio::time::sleep;
 
@@ -16,6 +16,7 @@ fn main() {
     let runner = async move {
         test_channel().await;
         test_indexmap_channel().await;
+        test_with_segqueue_channel().await;
     };
     // async_std::task::block_on(runner);
     tokio::runtime::Runtime::new().unwrap().block_on(runner);
@@ -73,9 +74,6 @@ async fn test_channel() {
             0, //s.read().len(),
             count
         );
-        // if count >= 200 {
-        //     tx.close().await.unwrap();
-        // }
     }
 
 }
@@ -115,6 +113,48 @@ async fn test_indexmap_channel() {
             0,
             count
         );
+    }
+
+}
+
+async fn test_with_segqueue_channel() {
+    use crossbeam_queue::SegQueue;
+    use rust_box::std_ext::ArcExt;
+    let s = SegQueue::default().arc();
+    let (mut tx, mut rx) = with_segqueue_channel(s.clone(), 100);
+
+    let mut tx1 = tx.clone();
+    let mut tx2 = tx.clone();
+
+    spawn(async move{
+        for i in 0 .. 100 {
+            if let Err(e) = tx1.send(i).await {
+                log::warn!("tx1, {:?}", e);
+                break;
+            }
+        }
+    });
+
+    spawn(async move{
+        for i in 100 .. 200 {
+            if let Err(e) = tx2.send(i).await {
+                log::warn!("tx2, {:?}", e);
+                break;
+            }
+        }
+    });
+    tx.close().await;
+
+    let mut count = 0;
+    while let Some(item) = rx.next().await {
+        count += 1;
+        log::info!(
+            "test with segqueue channel: {:?}, len: {}, count: {}",
+            item,
+            s.len(),
+            count
+        );
+        sleep(Duration::from_millis(1)).await;
     }
 
 }

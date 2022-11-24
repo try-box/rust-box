@@ -24,7 +24,6 @@ fn main() {
         test_with_crossbeam_segqueue().await;
         test_with_crossbeam_arrqueue().await;
         test_queue_channel_with_segqueue().await;
-        test_with_queue_stream().await;
     };
     // async_std::task::block_on(runner);
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), runner);
@@ -233,44 +232,6 @@ async fn test_queue_channel_with_segqueue() {
 
     while let Some(item) = rx.next().await {
         log::info!("test queue_channel: {:?}, len: {}", item, rx.len());
-    }
-}
-
-
-async fn test_with_queue_stream() {
-    use parking_lot::RwLock;
-    let mut s = Rc::new(RwLock::new(VecDeque::new())).queue_stream(|s, _| {
-        let mut s = s.write();
-        if s.is_empty() {
-            Poll::Pending
-        } else {
-            match s.pop_front() {
-                Some(m) => Poll::Ready(Some(m)),
-                None => Poll::Pending,
-            }
-        }
-    });
-
-    let q = s.clone();
-
-    spawn_local(async move {
-        for i in 0..10 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            q.write().push_back(i);
-            q.rx_wake();
-        }
-        q.close();
-    });
-
-    let mut count = 0;
-    while let Some(item) = s.next().await {
-        count += 1;
-        log::info!(
-            "test queue_stream: {:?}, len: {}, count: {}",
-            item,
-            s.read().len(),
-            count
-        );
     }
 }
 
