@@ -1,0 +1,28 @@
+[package]
+name = "mpsc"
+version = "0.1.0"
+authors = ["try <trywen@qq.com>"]
+edition = "2018"
+rust-version = "1.47"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/mpsc"
+homepage = "https://github.com/try-box/rust-box/tree/main/mpsc"
+description = "mpsc channel"
+keywords = ["mpsc", "channel"]
+categories = []
+
+[features]
+default = ["segqueue"]
+segqueue = ["crossbeam-queue"]
+vecdeque = []
+
+[dependencies]
+std-ext = { version = "0.1", path = "../std-ext" }
+queue-ext = { version = "0.4", path = "../queue-ext" }
+futures = "0.3"
+crossbeam-queue = { version = "0.3", optional = true }
+indexmap = { version = "1.9", features = ["std"], optional = true }
+#kanal = "0.1.0-pre3"
+
+
+
