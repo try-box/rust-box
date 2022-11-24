@@ -206,6 +206,7 @@ impl<Tx, G, D> LocalTaskExecQueue<Tx, G, D>
                 Action::Send(item) => Reply::Send(s.set(item)),
                 Action::IsFull => Reply::IsFull(s.is_full()),
                 Action::IsEmpty => Reply::IsEmpty(s.is_empty()),
+                Action::Len => Reply::Len(s.len()),
             });
 
             (tx, rx)
@@ -396,6 +397,16 @@ impl OneValue {
         self.0.read().is_some()
     }
 
+    #[inline]
+    fn len(&self) -> usize {
+        if self.0.read().is_some() {
+            1
+        }else{
+            0
+        }
+    }
+
+    #[inline]
     fn is_empty(&self) -> bool {
         self.0.read().is_none()
     }
