@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -13,18 +13,23 @@ exclude = ["examples"]
 
 [features]
 default = []
-full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "stream-ext-leaky-bucket", "stream-ext-governor", "task-exec-queue-rate"]
+full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "mpsc", "stream-ext-leaky-bucket",
+    "stream-ext-governor", "task-exec-queue-rate", "mpsc-segqueue", "mpsc-vecdeque", "mpsc-indexmap"]
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
 task-exec-queue-rate = ["task-exec-queue/rate"]
 event = ["event-notify"]
+mpsc-segqueue = ["mpsc/segqueue"]
+mpsc-vecdeque = ["mpsc/vecdeque"]
+mpsc-indexmap = ["mpsc/indexmap"]
 
 [dependencies]
-queue-ext = { version = "0.3.0", path = "./queue-ext", default-features = false, optional = true }
-stream-ext = { version = "0.2.2", path = "./stream-ext", default-features = false, optional = true }
-task-exec-queue = { version = "0.4.1", path = "./task-exec-queue", default-features = false, optional = true }
-event-notify = { version = "0.1.0", path = "./event", default-features = false, optional = true }
-std-ext = { version = "0.1.1", path = "./std-ext", default-features = false, optional = true }
+queue-ext = { version = "0.4.0", path = "./queue-ext", optional = true }
+stream-ext = { version = "0.2.2", path = "./stream-ext", optional = true }
+task-exec-queue = { version = "0.5.0", path = "./task-exec-queue", optional = true }
+event-notify = { version = "0.1.1", path = "./event", optional = true }
+std-ext = { version = "0.1.1", path = "./std-ext", optional = true }
+mpsc = { version = "0.1.0", path = "./mpsc", optional = true }
 
 [workspace]
 members = [
@@ -34,6 +39,7 @@ members = [
     "task-exec-queue",
     "event",
     "std-ext",
+    "mpsc"
 ]
 
 [patch.crates-io]
@@ -42,3 +48,4 @@ queue-ext = { path = "queue-ext" }
 task-exec-queue = { path = "task-exec-queue" }
 event-notify = { path = "event" }
 std-ext = { path = "std-ext" }
+mpsc = { path = "mpsc" }
