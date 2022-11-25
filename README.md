@@ -24,7 +24,8 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   Event
 * [`std-ext`](https://github.com/try-box/rust-box/tree/main/std-ext)
   Expand the function of the standard library to make it more convenient to use
-
+* [`mpsc`](https://github.com/try-box/rust-box/tree/main/mpsc)
+  MPSC channel based on queue-ext
 
 ## Usage
 
@@ -32,7 +33,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-box = "0.5"
+rust-box = "0.6"
 ```
 
 ## Examples
@@ -42,6 +43,7 @@ rust-box = "0.5"
 - [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)
 - [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
 - [std-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/std-ext-test.rs)
+- [channel-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/channel-test.rs)
 
 ## License
 

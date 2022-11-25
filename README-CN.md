@@ -22,6 +22,8 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   事件
 * [`std-ext`](https://github.com/try-box/rust-box/tree/main/std-ext)
   扩展标准库功能，使标准库用起来更方便
+* [`mpsc`](https://github.com/try-box/rust-box/tree/main/mpsc)
+  基于queue-ext实现的MPSC信道
 
 ## 使用
 
@@ -29,7 +31,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 
 ```toml
 [dependencies]
-rust-box = "0.5"
+rust-box = "0.6"
 ```
 
 ## 例子
@@ -39,6 +41,7 @@ rust-box = "0.5"
 - [task-exec-queue-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/task-exec-queue-test.rs)
 - [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
 - [std-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/std-ext-test.rs)
+- [channel-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/channel-test.rs)
 
 ## License
 
