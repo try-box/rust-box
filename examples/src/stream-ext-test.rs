@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures::{FutureExt, SinkExt, stream, StreamExt};
+use futures::{stream, FutureExt, SinkExt, StreamExt};
 use futures::{Future, Stream};
 use rust_box::queue_ext::{Action, QueueExt, Reply, Waker};
 use rust_box::stream_ext::{IntoLimiter, Limiter, LimiterExt};
@@ -26,7 +26,7 @@ fn main() {
             test_with_leaky_bucket_limiter(),
             test_with_governor_limiter(),
         )
-            .await;
+        .await;
 
         // test_with_limiter().await;
         // test_with_leaky_bucket_limiter().await;
@@ -96,14 +96,13 @@ async fn test_with_leaky_bucket_limiter() {
 async fn test_with_governor_limiter() {
     use futures::Stream;
     use governor::state::StreamRateLimitExt;
-    use governor::{Quota, RateLimiter, RatelimitedStream};
+    use governor::{clock, Quota, RateLimiter, RatelimitedStream};
     use nonzero_ext::nonzero;
 
     let s = stream::repeat(3);
     // let s = get_queue_stream(10);
     let lim = RateLimiter::direct(Quota::per_second(nonzero!(2u32)));
-    // let mut s = inner.ratelimit_stream(&lim);
-
+    // let mut s = s.ratelimit_stream(&lim);
     let mut s = s.governor_limiter(&lim);
 
     while let Some(item) = s.next().await {
@@ -111,7 +110,7 @@ async fn test_with_governor_limiter() {
     }
 }
 
-fn get_queue_stream(max: i32) -> impl Stream<Item=i32> + Debug {
+fn get_queue_stream(max: i32) -> impl Stream<Item = i32> + Debug {
     use crossbeam_queue::SegQueue;
 
     let s = Rc::new(SegQueue::default()).queue_stream::<i32, _>(|s, _| {

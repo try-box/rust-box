@@ -1,6 +1,6 @@
 [package]
 name = "examples"
-version = "0.4.1"
+version = "0.6.1"
 edition = "2021"
 
 [[bin]]
@@ -27,6 +27,10 @@ path = "src/std-ext-test.rs"
 name = "channel-test"
 path = "src/channel-test.rs"
 
+[[bin]]
+name = "dequemap-test"
+path = "src/dequemap-test.rs"
+
 [dependencies]
 rust-box = { path = "../", features = ["full"] }
 
@@ -41,7 +45,7 @@ env_logger = "0.8.4"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 leaky-bucket = "0.12"
-governor = "0.4"
+governor = "0.5"
 nonzero_ext = { version = "0.3.0", default-features = false }
 
 async-std = { version = "1.12", features = ["attributes", "unstable"] }

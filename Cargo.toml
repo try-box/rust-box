@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ exclude = ["examples"]
 
 [features]
 default = []
-full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "mpsc", "stream-ext-leaky-bucket",
+full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "mpsc", "dequemap", "stream-ext-leaky-bucket",
     "stream-ext-governor", "task-exec-queue-rate", "mpsc-segqueue", "mpsc-vecdeque", "mpsc-indexmap"]
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
@@ -30,6 +30,7 @@ task-exec-queue = { version = "0.5.0", path = "./task-exec-queue", optional = tr
 event-notify = { version = "0.1.1", path = "./event", optional = true }
 std-ext = { version = "0.1.2", path = "./std-ext", optional = true }
 mpsc = { version = "0.1.0", path = "./mpsc", optional = true }
+dequemap = { version = "0.1.0", path = "./dequemap", optional = true }
 
 [workspace]
 members = [
@@ -39,7 +40,8 @@ members = [
     "task-exec-queue",
     "event",
     "std-ext",
-    "mpsc"
+    "mpsc",
+    "dequemap"
 ]
 
 [patch.crates-io]
@@ -49,3 +51,4 @@ task-exec-queue = { path = "task-exec-queue" }
 event-notify = { path = "event" }
 std-ext = { path = "std-ext" }
 mpsc = { path = "mpsc" }
+dequemap = { path = "dequemap" }

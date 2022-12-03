@@ -26,6 +26,9 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   Expand the function of the standard library to make it more convenient to use
 * [`mpsc`](https://github.com/try-box/rust-box/tree/main/mpsc)
   MPSC channel based on queue-ext
+* [`dequemap`](https://github.com/try-box/rust-box/tree/main/dequemap)
+  Double-ended queue with Map feature
+
 
 ## Usage
 
@@ -44,6 +47,7 @@ rust-box = "0.6"
 - [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
 - [std-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/std-ext-test.rs)
 - [channel-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/channel-test.rs)
+- [dequemap-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/dequemap-test.rs)
 
 ## License
 

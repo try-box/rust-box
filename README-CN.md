@@ -24,6 +24,9 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
   扩展标准库功能，使标准库用起来更方便
 * [`mpsc`](https://github.com/try-box/rust-box/tree/main/mpsc)
   基于queue-ext实现的MPSC信道
+* [`dequemap`](https://github.com/try-box/rust-box/tree/main/dequemap)
+  具有Map功能的双端队列
+
 
 ## 使用
 
@@ -42,6 +45,8 @@ rust-box = "0.6"
 - [event-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/event-test.rs)
 - [std-ext-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/std-ext-test.rs)
 - [channel-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/channel-test.rs)
+- [dequemap-test.rs](https://github.com/try-box/rust-box/blob/main/examples/src/dequemap-test.rs)
+
 
 ## License
 
