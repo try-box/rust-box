@@ -15,9 +15,9 @@ impl<T: ?Sized> LimiterExt for T where T: Stream {}
 pub trait LimiterExt: Stream {
     #[inline]
     fn limiter<L>(self, l: L) -> IntoLimiter<Self, L>
-        where
-            Self: Sized + Stream + Unpin,
-            L: Limiter + Unpin,
+    where
+        Self: Sized + Stream + Unpin,
+        L: Limiter + Unpin,
     {
         assert_stream::<Self::Item, _>(IntoLimiter::new(self, l))
     }
@@ -28,8 +28,8 @@ pub trait LimiterExt: Stream {
         self,
         rate_limiter: leaky_bucket::RateLimiter,
     ) -> IntoLimiter<Self, rate_limiter::LeakyBucketRateLimiter>
-        where
-            Self: Sized + Stream + Unpin,
+    where
+        Self: Sized + Stream + Unpin,
     {
         let l = rate_limiter::LeakyBucketRateLimiter::new(rate_limiter);
         assert_stream::<Self::Item, _>(IntoLimiter::new(self, l))
@@ -41,15 +41,15 @@ pub trait LimiterExt: Stream {
         self,
         rate_limiter: &governor::RateLimiter<governor::state::NotKeyed, D, C, MW>,
     ) -> governor::RatelimitedStream<Self, D, C, MW>
-        where
-            D: governor::state::DirectStateStore,
-            C: governor::clock::Clock + governor::clock::ReasonablyRealtime,
-            MW: governor::middleware::RateLimitingMiddleware<
-                C::Instant,
-                NegativeOutcome=governor::NotUntil<<C as governor::clock::Clock>::Instant>,
-            >,
-            Self: Sized + Stream + Unpin,
-            Self::Item: Unpin,
+    where
+        D: governor::state::DirectStateStore,
+        C: governor::clock::Clock + governor::clock::ReasonablyRealtime,
+        MW: governor::middleware::RateLimitingMiddleware<
+            C::Instant,
+            NegativeOutcome = governor::NotUntil<<C as governor::clock::Clock>::Instant>,
+        >,
+        Self: Sized + Stream + Unpin,
+        Self::Item: Unpin,
     {
         use governor::state::StreamRateLimitExt;
         assert_stream::<Self::Item, _>(self.ratelimit_stream(rate_limiter))
@@ -60,8 +60,8 @@ pub trait LimiterExt: Stream {
 // right implementations.
 #[inline]
 pub(crate) fn assert_stream<T, S>(stream: S) -> S
-    where
-        S: Stream<Item=T>,
+where
+    S: Stream<Item = T>,
 {
     stream
 }
