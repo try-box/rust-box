@@ -1,4 +1,3 @@
-
 #[doc(inline)]
 #[cfg(feature = "event")]
 pub use event_notify as event;
@@ -23,3 +22,6 @@ pub use std_ext;
 #[cfg(feature = "mpsc")]
 pub use mpsc;
 
+#[doc(inline)]
+#[cfg(feature = "dequemap")]
+pub use dequemap;
