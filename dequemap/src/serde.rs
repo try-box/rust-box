@@ -1,21 +1,3 @@
-/*
-This code shows how to implement the Serialize and Deserialize traits for the DequeMap
-type. This allows instances of DequeMap to be serialized using a serialization library
-that supports the serde framework, such as bincode. This enables instances of DequeMap to
-be converted into a binary representation that can be stored on disk or transmitted over
-the network, and then restored at a later time.
-
-The DequeMapVisitor type is a serde Visitor implementation that knows how to deserialize
-a DequeMap instance from a stream of data. The Deserialize implementation for DequeMap
-uses this visitor to deserialize a DequeMap from a Deserializer. The IntoDeserializer
-implementation for DequeMap allows a DequeMap to be used as a MapAccess implementation,
-which enables the Deserialize implementation to work with a wider range of Deserializers.
-
-The code also includes a test that demonstrates how to use the bincode crate to serialize
-and deserialize a DequeMap instance.
-
-The above content and some comments in the code are written by ChatGPT.
- */
 use core::fmt::{self, Formatter};
 use core::marker::PhantomData;
 use serde::de::value::MapDeserializer;
@@ -24,6 +6,23 @@ use serde::ser::{Serialize, Serializer};
 
 use super::DequeMap;
 
+///This code shows how to implement the Serialize and Deserialize traits for the DequeMap
+///type. This allows instances of DequeMap to be serialized using a serialization library
+///that supports the serde framework, such as bincode. This enables instances of DequeMap to
+///be converted into a binary representation that can be stored on disk or transmitted over
+///the network, and then restored at a later time.
+///
+///The DequeMapVisitor type is a serde Visitor implementation that knows how to deserialize
+///a DequeMap instance from a stream of data. The Deserialize implementation for DequeMap
+///uses this visitor to deserialize a DequeMap from a Deserializer. The IntoDeserializer
+///implementation for DequeMap allows a DequeMap to be used as a MapAccess implementation,
+///which enables the Deserialize implementation to work with a wider range of Deserializers.
+///
+///The code also includes a test that demonstrates how to use the bincode crate to serialize
+///and deserialize a DequeMap instance.
+///
+///The above content and some comments in the code are written by ChatGPT.
+///
 /// Requires crate feature `"serde"`
 impl<K, V> Serialize for DequeMap<K, V>
 where
