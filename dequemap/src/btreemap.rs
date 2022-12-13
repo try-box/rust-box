@@ -1,3 +1,49 @@
+/*
+DequeMap is a data structure that combines the functionality of a double-ended queue
+(Deque) and a map. It allows you to insert and remove key-value pairs from either end of
+the queue in a constant time, and provides map-like access to the values by their keys.
+
+The implementation of DequeMap uses a BTreeMap to store the entries, and a VecDeque to
+store the indices in the order they were added to the map. This allows DequeMap to
+provide efficient O(log n) insertion, removal, and access operations. It also implements
+many common traits, such as Default, PartialEq, PartialOrd, Clone, and Debug.
+
+DequeMap provides several methods for inserting and removing key-value pairs. The
+insert() method inserts a key-value pair into the map, and returns the old value if the
+key was already present. The push_back() and push_front() methods insert a key-value pair
+at the back or front of the queue, respectively, and return the old value if the key was
+already present.
+
+DequeMap also provides the entry() method, which returns an Entry enum that represents
+either a vacant or occupied entry in the map. This can be used to insert or update values
+in the map while also managing the indices in the queue.
+
+In addition, DequeMap provides methods for accessing and iterating over the entries in
+the map. The get() and get_mut() methods allow you to retrieve a reference to the value
+associated with a key, and the iter() and into_iter() methods return iterators over the
+entries in the map. DequeMap also implements the Index and IndexMut traits, which allow
+you to access and modify the values in the map using index syntax (e.g., map[key]).
+
+Overall, DequeMap is a useful data structure for situations where you need to maintain
+the insertion order of the entries while also providing efficient access to the values by
+their keys.
+
+One potential limitation of DequeMap is that it is not optimized for processing large
+batches of data with many duplicates. This is because the insert() method has a
+worst-case time complexity of O(n), where n is the number of entries in the map. This
+means that if you try to insert a large number of duplicate keys into the map, the
+performance may degrade significantly.
+
+Additionally, DequeMap uses a BTreeMap internally, which means that the keys must
+implement the Ord trait. This means that the keys must have a total order and must be
+comparable using the <, >, <=, and >= operators. This may not always be desirable,
+depending on the types of keys you need to use with DequeMap.
+
+Overall, while DequeMap is a useful data structure in many cases, it is important to
+consider its performance and limitations when deciding whether to use it in your own code.
+
+The above content and some comments in the code are written by ChatGPT.
+ */
 use alloc::collections::vec_deque::IntoIter as DequeIntoIter;
 use alloc::collections::vec_deque::Iter as DequeIter;
 
@@ -806,5 +852,35 @@ fn test_dequemap() {
 
     map.remove(&3);
     assert_eq!(to_vec(&map), [(1, 10), (9, 900), (7, 70)]);
+    assert_eq!(map.entries.len(), map.indices.len());
+}
+
+#[test]
+fn test_dequemap_index() {
+    let mut map = DequeMap::new();
+    map.push_back(2, 20);
+    map.push_back(1, 10);
+    map.push_back(9, 90);
+    assert_eq!(map.index_mut(1), &mut 10);
+    assert_eq!(map.index(2), &90);
+}
+
+#[test]
+fn test_dequemap_extend() {
+    use alloc::vec::Vec;
+    let to_vec = |map: &DequeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<Vec<(i32, i32)>>()
+    };
+    let mut map = DequeMap::new();
+    map.push_back(2, 20);
+    map.push_back(1, 10);
+    map.push_back(9, 90);
+    map.extend([(10, 100), (5, 50)]);
+    assert_eq!(
+        to_vec(&map),
+        [(2, 20), (1, 10), (9, 90), (10, 100), (5, 50)]
+    );
     assert_eq!(map.entries.len(), map.indices.len());
 }
