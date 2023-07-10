@@ -1,9 +1,8 @@
 use rust_box::dequemap::DequeMap;
 
-fn main() {
-    std::env::set_var("RUST_LOG", "event_notify=info");
-    env_logger::init();
+//use dequemap::DequeMap;
 
+fn main() {
     test_dequemap();
 }
 

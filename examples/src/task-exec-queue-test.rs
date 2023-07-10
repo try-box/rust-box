@@ -1,6 +1,8 @@
 #![allow(unused_must_use)]
 #![allow(dead_code)]
 
+use std::collections::HashSet;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -26,6 +28,9 @@ fn main() {
     test_group_bench();
 
     test_local();
+    test_local_with_channel();
+    test_local_group_with_channel();
+    test_local_task_exec_queue();
 }
 
 //quick start
@@ -42,12 +47,25 @@ fn test_quick_start() {
 
         //execute task ...
         let _ = async {
-            println!("hello world!");
+            log::info!("[test_quick_start] hello world!");
         }
-            .spawn()
-            .await;
+        .spawn()
+        .await;
 
         default().flush().await;
+
+        log::info!(
+            "[test_quick_start] completed_count: {}, waiting_count: {}, active_count: {}",
+            default().completed_count(),
+            default().waiting_count(),
+            default().active_count()
+        );
+
+        assert!(
+            default().completed_count() == 1
+                && default().waiting_count() == 0
+                && default().active_count() == 0
+        );
     };
     async_std::task::block_on(root_fut);
 }
@@ -64,7 +82,21 @@ fn test_return_result() {
 
         //execute task and return result...
         let res = async { "hello world!" }.spawn(&exec).result().await;
-        println!("result: {:?}", res.ok());
+        log::info!("[test_return_result] result: {:?}", res.as_ref().ok());
+
+        log::info!(
+            "[test_return_result] completed_count: {}, waiting_count: {}, active_count: {}",
+            exec.completed_count(),
+            exec.waiting_count(),
+            exec.active_count(),
+        );
+
+        assert!(
+            exec.completed_count() == 1
+                && exec.waiting_count() == 0
+                && exec.active_count() == 0
+                && res.is_ok()
+        );
 
         exec.flush().await;
     };
@@ -89,37 +121,41 @@ fn test_channel() {
 
         spawn(async move {
             let _res = async {
-                println!("with mpsc: hello world!");
+                log::info!("[test_channel] with mpsc: hello world!");
             }
-                .spawn(&exec1)
-                .result()
-                .await;
+            .spawn(&exec1)
+            .result()
+            .await;
         });
 
         spawn(async move {
             let res = async {
                 sleep(Duration::from_micros(100)).await;
-                println!("with mpsc and result: hello world!");
+                log::info!("[test_channel] with mpsc and result: hello world!");
                 100
             }
-                .spawn(&exec2)
-                .result()
-                .await;
-            println!("result: {:?}", res.ok());
+            .spawn(&exec2)
+            .result()
+            .await;
+            log::info!("[test_channel] result: {:?}", res.ok());
         });
 
         exec.spawn(async {
-            println!("hello world!");
+            log::info!("[test_channel] hello world!");
         })
-            .result()
-            .await;
+        .result()
+        .await;
 
         exec.flush().await;
-        println!(
-            "2 exec.actives: {}, waitings: {}, completeds: {}",
+        log::info!(
+            "[test_channel]  exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
             exec.completed_count()
+        );
+
+        assert!(
+            exec.completed_count() == 3 && exec.waiting_count() == 0 && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -138,14 +174,25 @@ fn test_channel_custom() {
         });
 
         let res = async { "hello world!" }.spawn(&exec).result().await;
-        println!("result: {:?}", res.ok());
+        log::info!("[test_channel_custom] result: {:?}", res.ok());
 
         exec.flush().await;
+
+        log::info!(
+            "[test_channel_custom]  exec.actives: {}, waitings: {}, completeds: {}",
+            exec.active_count(),
+            exec.waiting_count(),
+            exec.completed_count()
+        );
+
+        assert!(
+            exec.completed_count() == 1 && exec.waiting_count() == 0 && exec.active_count() == 0
+        );
     };
     async_std::task::block_on(root_fut);
 }
 
-fn channel<'a, T>(cap: usize) -> (impl Sink<((), T)> + Clone, impl Stream<Item=((), T)>) {
+fn channel<'a, T>(cap: usize) -> (impl Sink<((), T)> + Clone, impl Stream<Item = ((), T)>) {
     let (tx, rx) = Arc::new(SegQueue::new()).queue_channel(
         move |s, act| match act {
             Action::Send(val) => {
@@ -187,41 +234,64 @@ fn test_channel_with_name() {
 
         spawn(async move {
             let res = async {
-                sleep(Duration::from_micros(100)).await;
-                "hello world!"
+                sleep(Duration::from_micros(50)).await;
+                "a hello world!"
             }
-                .spawn_with(&exec1, "test1")
-                .result()
-                .await;
-            println!("1 with name result: {:?}", res.ok());
+            .spawn_with(&exec1, "test1")
+            .result()
+            .await;
+            log::info!(
+                "[test_channel_with_name] 1 with name result: {:?}",
+                res.ok()
+            );
         });
 
         spawn(async move {
             let res = async {
-                sleep(Duration::from_micros(100)).await;
-                "hello world!"
+                sleep(Duration::from_micros(50)).await;
+                "b hello world!"
             }
-                .spawn_with(&exec2, "test1")
-                .result()
-                .await;
-            println!("2 with name result: {:?}", res.ok());
-        });
-
-        exec.spawn_with(
-            async {
-                println!("hello world!");
-            },
-            "test1",
-        )
+            .spawn_with(&exec2, "test1")
+            .result()
             .await;
-
-        // exec.flush().await;
-        sleep(Duration::from_millis(100)).await;
-        println!(
-            "exec.actives: {}, waitings: {}, completeds: {}",
+            log::info!(
+                "[test_channel_with_name] 2 with name result: {:?}",
+                res.ok()
+            );
+        });
+        log::info!(
+            "[test_channel_with_name] 2 exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
             exec.completed_count()
+        );
+        sleep(Duration::from_micros(70)).await;
+        exec.spawn_with(
+            async {
+                log::info!("[test_channel_with_name] c hello world!");
+            },
+            "test1",
+        )
+        .await;
+        log::info!(
+            "[test_channel_with_name] 3 exec.actives: {}, waitings: {}, completeds: {}",
+            exec.active_count(),
+            exec.waiting_count(),
+            exec.completed_count()
+        );
+        exec.flush().await;
+        //        sleep(Duration::from_millis(200)).await;
+        log::info!(
+            "[test_channel_with_name] 4 exec.actives: {}, waitings: {}, completeds: {}",
+            exec.active_count(),
+            exec.waiting_count(),
+            exec.completed_count()
+        );
+
+        assert!(
+            (exec.completed_count() == 2 || exec.completed_count() == 3)
+                && exec.waiting_count() == 0
+                && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -231,7 +301,7 @@ fn channel_with_name<'a, T>(
     cap: usize,
 ) -> (
     impl Sink<(&'a str, T)> + Clone,
-    impl Stream<Item=(&'a str, T)>,
+    impl Stream<Item = (&'a str, T)>,
 ) {
     use linked_hash_map::LinkedHashMap;
     use parking_lot::RwLock;
@@ -240,7 +310,7 @@ fn channel_with_name<'a, T>(
             Action::Send((key, val)) => {
                 let mut s = s.write();
                 if s.contains_key(&key) {
-                    println!("remove old, {}", key);
+                    log::info!("[channel_with_name] remove old, {}", key);
                     s.remove(&key);
                 }
                 s.insert(key, val);
@@ -280,16 +350,16 @@ fn test_default_set() {
 
         //execute task ...
         let res = async {
-            log::info!("execute task ...");
+            log::info!("[test_default_set] execute task ...");
         }
-            .spawn()
-            .await;
+        .spawn()
+        .await;
         assert_eq!(res.ok(), Some(()));
 
         //execute task and return result...
         let res = async { 3 + 2 - 5 + 100 }.spawn().result().await;
         assert_eq!(res.as_ref().ok(), Some(&100));
-        log::info!("execute and result is {:?}", res.ok());
+        log::info!("[test_default_set] execute and result is {:?}", res.ok());
 
         default().flush().await;
     });
@@ -298,31 +368,43 @@ fn test_default_set() {
 fn test_task_exec_queue() {
     use rust_box::task_exec_queue::Builder;
     use tokio::{task::spawn, time::sleep};
-    const MAX_TASKS: isize = 100_000;
+    const MAX_TASKS: isize = 30_000;
     let now = std::time::Instant::now();
-    let (exec, task_runner) = Builder::default().workers(150).queue_max(1000).build();
+    let (exec, task_runner) = Builder::default().workers(200).queue_max(1000).build();
     let mailbox = exec.clone();
     let root_fut = async move {
         spawn(async move {
             task_runner.await;
         });
-
+        let thread_ids = Arc::new(std::sync::Mutex::new(HashSet::new()));
+        let thread_ids1 = thread_ids.clone();
         spawn(async move {
             for i in 0..MAX_TASKS {
+                let thread_ids1 = thread_ids1.clone();
                 let mailbox = mailbox.clone();
                 spawn(async move {
+                    let thread_ids2 = thread_ids1.clone();
                     //send ...
                     let _res = mailbox
                         .spawn(async move {
                             sleep(std::time::Duration::from_micros(1)).await;
+                            thread_ids2
+                                .lock()
+                                .unwrap()
+                                .insert(std::thread::current().id());
                             i
                         })
                         .await;
 
                     //send and wait reply
+                    let thread_ids3 = thread_ids1.clone();
                     let _res = mailbox
                         .spawn(async move {
-                            sleep(std::time::Duration::from_micros(1)).await;
+                            thread_ids3
+                                .lock()
+                                .unwrap()
+                                .insert(std::thread::current().id());
+                            sleep(std::time::Duration::from_micros(10)).await;
                             i * i + 100
                         })
                         .result()
@@ -333,9 +415,10 @@ fn test_task_exec_queue() {
 
         for i in 0..10 {
             log::info!(
-                "{}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+                "[test_task_exec_queue] {}, {:?} pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                 i,
                 now.elapsed(),
+                exec.pending_wakers_count(),
                 exec.active_count(),
                 exec.waiting_count(),
                 exec.is_full(),
@@ -344,16 +427,19 @@ fn test_task_exec_queue() {
                 exec.completed_count(),
                 exec.rate()
             );
-            sleep(std::time::Duration::from_millis(500)).await;
+            sleep(std::time::Duration::from_millis(200)).await;
         }
 
         exec.close().await.unwrap();
 
         assert!(exec.completed_count() == MAX_TASKS * 2);
+        assert!(thread_ids.lock().unwrap().len() > 1);
 
         log::info!(
-            "close {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            "[test_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
+            thread_ids.lock().unwrap().len(),
+            exec.pending_wakers_count(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
@@ -387,25 +473,28 @@ fn test_group() {
 
         //execute task ...
         let _res = async move {
-            println!("hello world!");
+            log::info!("[test_group] hello world!");
         }
-            .spawn(&exec)
-            .group("g1")
-            .await;
+        .spawn(&exec)
+        .group("g1")
+        .await;
 
         let res = async move { "hello world!" }
             .spawn(&exec)
             .group("g1")
             .result()
             .await;
-        println!("result: {:?}", res.ok());
+        log::info!("[test_group] result: {:?}", res.ok());
 
         exec.flush().await;
-        println!(
-            "exec.actives: {}, waitings: {}, completeds: {}",
+        log::info!(
+            "[test_group] exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
             exec.completed_count()
+        );
+        assert!(
+            exec.completed_count() == 2 && exec.waiting_count() == 0 && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -414,7 +503,7 @@ fn test_group() {
 fn test_group_bench() {
     use rust_box::task_exec_queue::Builder;
     use tokio::{task::spawn, time::sleep};
-    const MAX_TASKS: isize = 100_0000;
+    const MAX_TASKS: isize = 50_0000;
     let now = std::time::Instant::now();
     let (exec, task_runner) = Builder::default()
         .workers(100)
@@ -455,7 +544,7 @@ fn test_group_bench() {
 
         for i in 0..10 {
             log::info!(
-                "{}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+                "[test_group_bench] {}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                 i,
                 now.elapsed(),
                 exec.active_count(),
@@ -470,13 +559,12 @@ fn test_group_bench() {
         }
 
         test_spawns.await;
+        exec.flush().await.unwrap();
         exec.close().await.unwrap();
-
-        assert!(exec.completed_count() == MAX_TASKS * 2);
-
         log::info!(
-            "close {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            "[test_group_bench] close {:?}  pending_wakers_count: {}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
+            exec.pending_wakers_count(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
@@ -485,6 +573,7 @@ fn test_group_bench() {
             exec.completed_count(),
             exec.rate()
         );
+        assert!(exec.completed_count() == MAX_TASKS * 2);
     };
 
     // async_std::task::block_on(runner);
@@ -504,10 +593,153 @@ fn test_local() {
 
         //execute task and return result...
         let res = async { "hello world!" }.spawn(&exec).result().await;
-        println!("result: {:?}", res.ok());
+        log::info!("[test_local] result: {:?}", res.ok());
 
         exec.flush().await;
         exec.close().await;
+
+        assert!(exec.completed_count() == 1);
     };
+    tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
+}
+
+fn test_local_with_channel() {
+    use rust_box::task_exec_queue::{LocalBuilder, LocalSpawnExt};
+    use tokio::task::spawn_local;
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    let (exec, task_runner) = LocalBuilder::default().with_channel(tx, rx).build();
+    let root_fut = async move {
+        spawn_local(async {
+            //start executor
+            task_runner.await;
+        });
+
+        //execute task and return result...
+        let res = async { "hello world!" }.spawn(&exec).result().await;
+        log::info!("[test_local_with_channel] result: {:?}", res.ok());
+
+        exec.flush().await;
+        exec.close().await;
+
+        assert!(exec.completed_count() == 1);
+    };
+    tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
+}
+
+fn test_local_group_with_channel() {
+    use rust_box::task_exec_queue::{LocalBuilder, LocalSpawnExt};
+    use tokio::task::spawn_local;
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    let (exec, task_runner) = LocalBuilder::default().with_channel(tx, rx).group().build();
+    let root_fut = async move {
+        spawn_local(async {
+            //start executor
+            task_runner.await;
+        });
+
+        //execute task and return result...
+        let res = async { "hello world!" }
+            .spawn(&exec)
+            .group(1)
+            .result()
+            .await;
+        log::info!("[test_local_group_with_channel] result: {:?}", res.ok());
+
+        exec.flush().await;
+        exec.close().await;
+        assert!(exec.completed_count() == 1);
+    };
+    tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
+}
+
+fn test_local_task_exec_queue() {
+    use rust_box::task_exec_queue::LocalBuilder;
+    use tokio::{task::spawn_local as spawn, time::sleep};
+    const MAX_TASKS: isize = 30_000;
+    let now = std::time::Instant::now();
+    let (exec, task_runner) = LocalBuilder::default().workers(200).queue_max(1000).build();
+    let mailbox = exec.clone();
+    let root_fut = async move {
+        spawn(async move {
+            task_runner.await;
+        });
+        let thread_ids = Rc::new(std::sync::Mutex::new(HashSet::new()));
+        let thread_ids1 = thread_ids.clone();
+        spawn(async move {
+            for i in 0..MAX_TASKS {
+                let mailbox = mailbox.clone();
+                let thread_ids2 = thread_ids1.clone();
+                let thread_ids3 = thread_ids1.clone();
+                spawn(async move {
+                    //send ...
+                    let _res = mailbox
+                        .spawn(async move {
+                            thread_ids2
+                                .lock()
+                                .unwrap()
+                                .insert(std::thread::current().id());
+                            sleep(std::time::Duration::from_micros(1)).await;
+                            i
+                        })
+                        .await;
+
+                    //send and wait reply
+                    let _res = mailbox
+                        .spawn(async move {
+                            thread_ids3
+                                .lock()
+                                .unwrap()
+                                .insert(std::thread::current().id());
+                            sleep(std::time::Duration::from_micros(10)).await;
+                            i * i + 100
+                        })
+                        .result()
+                        .await;
+                });
+            }
+        });
+
+        for i in 0..10 {
+            log::info!(
+                "[test_local_task_exec_queue] {}, {:?} thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+                i,
+                now.elapsed(),
+                thread_ids.lock().unwrap().len(),
+                exec.pending_wakers_count(),
+                exec.active_count(),
+                exec.waiting_count(),
+                exec.is_full(),
+                exec.is_closed(),
+                exec.is_flushing(),
+                exec.completed_count(),
+                exec.rate()
+            );
+            sleep(std::time::Duration::from_millis(200)).await;
+        }
+
+        exec.close().await.unwrap();
+
+        assert!(exec.completed_count() == MAX_TASKS * 2);
+        thread_ids
+            .lock()
+            .unwrap()
+            .insert(std::thread::current().id());
+        log::info!(
+            "[test_local_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            now.elapsed(),
+            thread_ids.lock().unwrap().len(),
+            exec.pending_wakers_count(),
+            exec.active_count(),
+            exec.waiting_count(),
+            exec.is_full(),
+            exec.is_closed(),
+            exec.is_flushing(),
+            exec.completed_count(),
+            exec.rate()
+        );
+    };
+
+    // async_std::task::block_on(runner);
+    //    tokio::runtime::Runtime::new().unwrap().block_on(root_fut);
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
 }
