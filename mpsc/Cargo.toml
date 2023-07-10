@@ -1,6 +1,6 @@
 [package]
 name = "mpsc"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.47"
@@ -20,9 +20,13 @@ vecdeque = []
 std-ext = { version = "0.1", path = "../std-ext" }
 queue-ext = { version = "0.4", path = "../queue-ext" }
 futures = "0.3"
+rand = "0.8"
+dashmap = "5.4"
+ahash = "0.8"
+log = "0.4"
+
 crossbeam-queue = { version = "0.3", optional = true }
 indexmap = { version = "1.9", features = ["std"], optional = true }
-#kanal = "0.1.0-pre3"
 
 
 
