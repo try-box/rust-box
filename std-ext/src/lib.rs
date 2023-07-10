@@ -1,16 +1,19 @@
+use core::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU64, AtomicUsize};
+pub use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU64, AtomicUsize};
-pub use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard, Mutex, MutexGuard};
+
+pub use map::{CacheMapExt, EntryExt, TimedValue};
 
 pub mod async_std;
+pub mod map;
 
 impl<T: ?Sized> ArcExt for T {}
 
 pub trait ArcExt {
     #[inline]
     fn arc(self) -> Arc<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         Arc::new(self)
     }
@@ -19,29 +22,25 @@ pub trait ArcExt {
 impl<T: ?Sized> RwLockExt for T {}
 
 pub trait RwLockExt {
-
     #[inline]
     fn rwlock(self) -> RwLock<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         RwLock::new(self)
     }
-
 }
 
 impl<T: ?Sized> MutexExt for T {}
 
 pub trait MutexExt {
-
     #[inline]
     fn mutex(self) -> Mutex<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         Mutex::new(self)
     }
-
 }
 
 pub trait AtomicExt<T> {
@@ -82,7 +81,6 @@ impl AtomicExt<AtomicBool> for bool {
         AtomicBool::new(self)
     }
 }
-
 
 #[test]
 fn test_rwlock() {
