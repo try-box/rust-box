@@ -2,13 +2,14 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::marker::Unpin;
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::task::Poll;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures::{Sink, SinkExt, Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::task::AtomicWaker;
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 #[cfg(feature = "rate")]
@@ -17,14 +18,14 @@ use update_rate::{DiscreteRateCounter, RateCounter};
 use queue_ext::{Action, QueueExt, Reply};
 
 use super::{
-    assert_future, close::Close, Counter, Error, ErrorType, flush::Flush, GroupTaskExecQueue,
-    IndexSet, PendingOnce, Spawner, TrySpawner,
+    assert_future, close::Close, flush::Flush, Counter, Error, ErrorType, GroupTaskExecQueue,
+    IndexSet, Spawner, TrySpawner,
 };
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskExecQueue<TaskType>>>>>;
 
-pub type TaskType = Box<dyn std::future::Future<Output=()> + Send + 'static + Unpin>;
+pub type TaskType = Box<dyn std::future::Future<Output = ()> + Send + 'static + Unpin>;
 
 pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     pub(crate) tx: Tx,
@@ -38,15 +39,15 @@ pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     flush_waker: Arc<AtomicWaker>,
     is_flushing: Arc<AtomicBool>,
     is_closed: Arc<AtomicBool>,
-
+    pending_wakers: Arc<crossbeam_queue::SegQueue<Arc<AtomicWaker>>>,
     //group
     group_channels: GroupChannels<G>,
     _d: std::marker::PhantomData<D>,
 }
 
 impl<Tx, G, D> Clone for TaskExecQueue<Tx, G, D>
-    where
-        Tx: Clone,
+where
+    Tx: Clone,
 {
     #[inline]
     fn clone(&self) -> Self {
@@ -62,6 +63,7 @@ impl<Tx, G, D> Clone for TaskExecQueue<Tx, G, D>
             flush_waker: self.flush_waker.clone(),
             is_flushing: self.is_flushing.clone(),
             is_closed: self.is_closed.clone(),
+            pending_wakers: self.pending_wakers.clone(),
             group_channels: self.group_channels.clone(),
             _d: std::marker::PhantomData,
         }
@@ -69,9 +71,9 @@ impl<Tx, G, D> Clone for TaskExecQueue<Tx, G, D>
 }
 
 impl<Tx, G, D> TaskExecQueue<Tx, G, D>
-    where
-        Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn with_channel<Rx>(
@@ -79,9 +81,9 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
         queue_max: usize,
         tx: Tx,
         rx: Rx,
-    ) -> (Self, impl Future<Output=()>)
-        where
-            Rx: Stream<Item=(D, TaskType)> + Unpin,
+    ) -> (Self, impl Future<Output = ()>)
+    where
+        Rx: Stream<Item = (D, TaskType)> + Unpin,
     {
         let exec = Self {
             tx,
@@ -95,6 +97,7 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
             is_closed: Arc::new(AtomicBool::new(false)),
+            pending_wakers: Arc::new(crossbeam_queue::SegQueue::new()),
             group_channels: Arc::new(DashMap::default()),
             _d: std::marker::PhantomData,
         };
@@ -104,10 +107,10 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
 
     #[inline]
     pub fn try_spawn_with<T>(&self, msg: T, name: D) -> TrySpawner<'_, T, Tx, G, D>
-        where
-            D: Clone,
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    where
+        D: Clone,
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
         let fut = TrySpawner::new(self, msg, name);
         assert_future::<Result<(), _>, _>(fut)
@@ -115,10 +118,10 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
 
     #[inline]
     pub fn spawn_with<T>(&self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
-        where
-            D: Clone,
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    where
+        D: Clone,
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
         let fut = Spawner::new(self, msg, name);
         assert_future::<Result<(), _>, _>(fut)
@@ -170,6 +173,11 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
     }
 
     #[inline]
+    pub fn pending_wakers_count(&self) -> usize {
+        self.pending_wakers.len()
+    }
+
+    #[inline]
     #[cfg(feature = "rate")]
     pub fn rate(&self) -> f64 {
         self.rate_counter.read().rate()
@@ -191,11 +199,11 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
     }
 
     async fn run<Rx>(self, mut task_rx: Rx)
-        where
-            Rx: Stream<Item=(D, TaskType)> + Unpin,
+    where
+        Rx: Stream<Item = (D, TaskType)> + Unpin,
     {
         let exec = self;
-        let idle_waker = Arc::new(AtomicWaker::new());
+        let pending_wakers = exec.pending_wakers.clone();
 
         let channel = || {
             let rx = OneValue::new().queue_stream(|s, _| match s.take() {
@@ -218,7 +226,7 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
         let mut rxs = Vec::new();
         for i in 0..exec.workers {
             let (tx, mut rx) = channel();
-            let idle_waker = idle_waker.clone();
+            let pending_wakers = pending_wakers.clone();
             let idle_idxs = idle_idxs.clone();
             idle_idxs.insert(i);
             let exec = exec.clone();
@@ -238,7 +246,9 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
 
                     if !rx.is_full() {
                         idle_idxs.insert(i);
-                        idle_waker.wake();
+                        if let Some(w) = pending_wakers.pop() {
+                            w.wake();
+                        }
                     }
 
                     if exec.is_flushing() && rx.is_empty() {
@@ -256,7 +266,9 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
                 loop {
                     if idle_idxs.is_empty() {
                         //sleep ...
-                        PendingOnce::new(idle_waker.clone()).await;
+                        let w = Arc::new(AtomicWaker::new());
+                        pending_wakers.push(w.clone());
+                        PendingOnce::new(w).await;
                     } else if let Some(idx) = idle_idxs.pop() {
                         //select ...
                         if let Some(tx) = txs.get_mut(idx) {
@@ -277,15 +289,15 @@ impl<Tx, G, D> TaskExecQueue<Tx, G, D>
 }
 
 impl<Tx, G> TaskExecQueue<Tx, G, ()>
-    where
-        Tx: Clone + Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub fn try_spawn<T>(&self, task: T) -> TrySpawner<'_, T, Tx, G, ()>
-        where
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    where
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
         let fut = TrySpawner::new(self, task, ());
         assert_future::<Result<(), _>, _>(fut)
@@ -293,9 +305,9 @@ impl<Tx, G> TaskExecQueue<Tx, G, ()>
 
     #[inline]
     pub fn spawn<T>(&self, task: T) -> Spawner<'_, T, Tx, G, ()>
-        where
-            T: Future + Send + 'static,
-            T::Output: Send + 'static,
+    where
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
     {
         let fut = Spawner::new(self, task, ());
         assert_future::<Result<(), _>, _>(fut)
@@ -369,10 +381,6 @@ impl<Tx, G> TaskExecQueue<Tx, G, ()>
 #[derive(Clone)]
 struct OneValue(Arc<RwLock<Option<TaskType>>>);
 
-unsafe impl Sync for OneValue {}
-
-unsafe impl Send for OneValue {}
-
 impl OneValue {
     #[inline]
     fn new() -> Self {
@@ -398,7 +406,7 @@ impl OneValue {
     fn len(&self) -> usize {
         if self.0.read().is_some() {
             1
-        }else{
+        } else {
             0
         }
     }
@@ -406,5 +414,30 @@ impl OneValue {
     #[inline]
     fn is_empty(&self) -> bool {
         self.0.read().is_none()
+    }
+}
+
+struct PendingOnce {
+    w: Arc<AtomicWaker>,
+    is_ready: bool,
+}
+
+impl PendingOnce {
+    #[inline]
+    fn new(w: Arc<AtomicWaker>) -> Self {
+        Self { w, is_ready: false }
+    }
+}
+
+impl Future for PendingOnce {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_ready {
+            Poll::Ready(())
+        } else {
+            self.w.register(cx.waker());
+            self.is_ready = true;
+            Poll::Pending
+        }
     }
 }

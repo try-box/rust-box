@@ -3,8 +3,8 @@ use std::hash::Hash;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{Future, Sink, SinkExt};
 use futures::channel::oneshot;
+use futures::{Future, Sink, SinkExt};
 use futures_lite::FutureExt;
 
 use crate::TaskType;
@@ -19,9 +19,9 @@ pub struct GroupSpawner<'a, Item, Tx, G> {
 impl<Item, Tx, G> Unpin for GroupSpawner<'_, Item, Tx, G> {}
 
 impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
-    where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn new(inner: Spawner<'a, Item, Tx, G, ()>, name: G) -> Self {
@@ -33,9 +33,9 @@ impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         let task = match self.inner.item.take() {
             Some(task) => task,
@@ -86,11 +86,11 @@ impl<'a, Item, Tx, G> GroupSpawner<'a, Item, Tx, G>
 }
 
 impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Item: Future + Send + 'static,
+    Item::Output: Send + 'static,
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -143,9 +143,9 @@ pub struct TryGroupSpawner<'a, Item, Tx, G> {
 impl<Item, Tx, G> Unpin for TryGroupSpawner<'_, Item, Tx, G> {}
 
 impl<'a, Item, Tx, G> TryGroupSpawner<'a, Item, Tx, G>
-    where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn new(inner: Spawner<'a, Item, Tx, G, ()>, name: G) -> Self {
@@ -159,9 +159,9 @@ impl<'a, Item, Tx, G> TryGroupSpawner<'a, Item, Tx, G>
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         if self.inner.inner.sink.is_full() {
             return Err(Error::TrySendError(ErrorType::Full(
@@ -173,11 +173,11 @@ impl<'a, Item, Tx, G> TryGroupSpawner<'a, Item, Tx, G>
 }
 
 impl<Item, Tx, G> Future for TryGroupSpawner<'_, Item, Tx, G>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Item: Future + Send + 'static,
+    Item::Output: Send + 'static,
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -203,15 +203,15 @@ pub struct Spawner<'a, Item, Tx, G, D> {
 impl<'a, Item, Tx, G, D> Unpin for Spawner<'a, Item, Tx, G, D> {}
 
 impl<'a, Item, Tx, G> Spawner<'a, Item, Tx, G, ()>
-    where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub fn group(self, name: G) -> GroupSpawner<'a, Item, Tx, G>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         let fut = GroupSpawner::new(self, name);
         assert_future::<Result<(), _>, _>(fut)
@@ -219,9 +219,9 @@ impl<'a, Item, Tx, G> Spawner<'a, Item, Tx, G, ()>
 }
 
 impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
-    where
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn new(sink: &'a TaskExecQueue<Tx, G, D>, item: Item, d: D) -> Self {
@@ -234,9 +234,9 @@ impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         let task = self
             .item
@@ -281,11 +281,11 @@ impl<'a, Item, Tx, G, D> Spawner<'a, Item, Tx, G, D>
 }
 
 impl<Item, Tx, G, D> Future for Spawner<'_, Item, Tx, G, D>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Item: Future + Send + 'static,
+    Item::Output: Send + 'static,
+    Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 
@@ -338,15 +338,15 @@ pub struct TrySpawner<'a, Item, Tx, G, D> {
 impl<'a, Item, Tx, G, D> Unpin for TrySpawner<'a, Item, Tx, G, D> {}
 
 impl<'a, Item, Tx, G> TrySpawner<'a, Item, Tx, G, ()>
-    where
-        Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub fn group(self, name: G) -> TryGroupSpawner<'a, Item, Tx, G>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         let fut = TryGroupSpawner::new(self.inner, name);
         assert_future::<Result<(), _>, _>(fut)
@@ -354,9 +354,9 @@ impl<'a, Item, Tx, G> TrySpawner<'a, Item, Tx, G, ()>
 }
 
 impl<'a, Item, Tx, G, D> TrySpawner<'a, Item, Tx, G, D>
-    where
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     #[inline]
     pub(crate) fn new(sink: &'a TaskExecQueue<Tx, G, D>, item: Item, d: D) -> Self {
@@ -371,9 +371,9 @@ impl<'a, Item, Tx, G, D> TrySpawner<'a, Item, Tx, G, D>
 
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
-        where
-            Item: Future + Send + 'static,
-            Item::Output: Send + 'static,
+    where
+        Item: Future + Send + 'static,
+        Item::Output: Send + 'static,
     {
         if self.inner.sink.is_full() {
             return Err(Error::TrySendError(ErrorType::Full(self.inner.item.take())));
@@ -383,11 +383,11 @@ impl<'a, Item, Tx, G, D> TrySpawner<'a, Item, Tx, G, D>
 }
 
 impl<Item, Tx, G, D> Future for TrySpawner<'_, Item, Tx, G, D>
-    where
-        Item: Future + Send + 'static,
-        Item::Output: Send + 'static,
-        Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
-        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+where
+    Item: Future + Send + 'static,
+    Item::Output: Send + 'static,
+    Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Error<Item>>;
 

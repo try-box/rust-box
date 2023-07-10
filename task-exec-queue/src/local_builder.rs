@@ -1,11 +1,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::Unpin;
-use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use futures::channel::mpsc;
 
 use super::{assert_future, LocalSpawner, LocalTaskExecQueue, LocalTaskType};
 
@@ -14,11 +9,11 @@ impl<T: ?Sized> LocalSpawnExt for T where T: futures::Future {}
 pub trait LocalSpawnExt: futures::Future {
     #[inline]
     fn spawn<Tx, G>(self, queue: &LocalTaskExecQueue<Tx, G>) -> LocalSpawner<Self, Tx, G, ()>
-        where
-            Self: Sized + 'static,
-            Self::Output: 'static,
-            Tx: Clone + Unpin + futures::Sink<((), LocalTaskType)> + Sync + 'static,
-            G: Hash + Eq + Clone + Debug + Sync + 'static,
+    where
+        Self: Sized + 'static,
+        Self::Output: 'static,
+        Tx: Clone + Unpin + futures::Sink<((), LocalTaskType)> + 'static,
+        G: Hash + Eq + Clone + Debug + 'static,
     {
         let f = LocalSpawner::new(queue, self, ());
         assert_future::<_, _>(f)
@@ -30,11 +25,11 @@ pub trait LocalSpawnExt: futures::Future {
         queue: &LocalTaskExecQueue<Tx, G, D>,
         name: D,
     ) -> LocalSpawner<Self, Tx, G, D>
-        where
-            Self: Sized + 'static,
-            Self::Output: 'static,
-            Tx: Clone + Unpin + futures::Sink<(D, LocalTaskType)> + Sync + 'static,
-            G: Hash + Eq + Clone + Debug + Sync + 'static,
+    where
+        Self: Sized + 'static,
+        Self::Output: 'static,
+        Tx: Clone + Unpin + futures::Sink<(D, LocalTaskType)> + 'static,
+        G: Hash + Eq + Clone + Debug + 'static,
     {
         let f = LocalSpawner::new(queue, self, name);
         assert_future::<_, _>(f)
@@ -69,10 +64,15 @@ impl LocalBuilder {
     }
 
     #[inline]
+    pub fn group(self) -> GroupLocalBuilder {
+        GroupLocalBuilder { builder: self }
+    }
+
+    #[inline]
     pub fn with_channel<Tx, Rx, D>(self, tx: Tx, rx: Rx) -> ChannelLocalBuilder<Tx, Rx, D>
-        where
-            Tx: Clone + futures::Sink<(D, LocalTaskType)> + Unpin + Sync + 'static,
-            Rx: futures::Stream<Item=(D, LocalTaskType)> + Unpin,
+    where
+        Tx: Clone + futures::Sink<(D, LocalTaskType)> + Unpin + 'static,
+        Rx: futures::Stream<Item = (D, LocalTaskType)> + Unpin,
     {
         ChannelLocalBuilder {
             builder: self,
@@ -83,9 +83,29 @@ impl LocalBuilder {
     }
 
     #[inline]
-    pub fn build(self) -> (LocalTaskExecQueue, impl futures::Future<Output=()>) {
+    pub fn build(self) -> (LocalTaskExecQueue, impl futures::Future<Output = ()>) {
         let (tx, rx) = futures::channel::mpsc::channel(self.queue_max);
-        LocalTaskExecQueue::with_channel(self.workers, self.queue_max, SyncSender(tx), rx)
+        LocalTaskExecQueue::with_channel(self.workers, self.queue_max, LocalSender::new(tx), rx)
+    }
+}
+
+pub struct GroupLocalBuilder {
+    builder: LocalBuilder,
+}
+
+impl GroupLocalBuilder {
+    #[inline]
+    pub fn build<G>(
+        self,
+    ) -> (
+        LocalTaskExecQueue<futures::channel::mpsc::Sender<((), LocalTaskType)>, G>,
+        impl futures::Future<Output = ()>,
+    )
+    where
+        G: Hash + Eq + Clone + Debug + 'static,
+    {
+        let (tx, rx) = futures::channel::mpsc::channel(self.builder.queue_max);
+        LocalTaskExecQueue::with_channel(self.builder.workers, self.builder.queue_max, tx, rx)
     }
 }
 
@@ -97,16 +117,16 @@ pub struct ChannelLocalBuilder<Tx, Rx, D> {
 }
 
 impl<Tx, Rx, D> ChannelLocalBuilder<Tx, Rx, D>
-    where
-        Tx: Clone + futures::Sink<(D, LocalTaskType)> + Unpin + Sync + 'static,
-        Rx: futures::Stream<Item=(D, LocalTaskType)> + Unpin,
+where
+    Tx: Clone + futures::Sink<(D, LocalTaskType)> + Unpin + 'static,
+    Rx: futures::Stream<Item = (D, LocalTaskType)> + Unpin,
 {
     #[inline]
     pub fn build(
         self,
     ) -> (
         LocalTaskExecQueue<Tx, (), D>,
-        impl futures::Future<Output=()>,
+        impl futures::Future<Output = ()>,
     ) {
         LocalTaskExecQueue::with_channel(
             self.builder.workers,
@@ -127,14 +147,14 @@ pub struct GroupChannelLocalBuilder<Tx, Rx, D> {
 }
 
 impl<Tx, Rx, D> GroupChannelLocalBuilder<Tx, Rx, D>
-    where
-        Tx: Clone + futures::Sink<((), LocalTaskType)> + Unpin + Sync + 'static,
-        Rx: futures::Stream<Item=((), LocalTaskType)> + Unpin,
+where
+    Tx: Clone + futures::Sink<((), LocalTaskType)> + Unpin + 'static,
+    Rx: futures::Stream<Item = ((), LocalTaskType)> + Unpin,
 {
     #[inline]
-    pub fn build<G>(self) -> (LocalTaskExecQueue<Tx, G>, impl futures::Future<Output=()>)
-        where
-            G: Hash + Eq + Clone + Debug + Sync + 'static,
+    pub fn build<G>(self) -> (LocalTaskExecQueue<Tx, G>, impl futures::Future<Output = ()>)
+    where
+        G: Hash + Eq + Clone + Debug + 'static,
     {
         LocalTaskExecQueue::with_channel(
             self.builder.builder.workers,
@@ -145,44 +165,4 @@ impl<Tx, Rx, D> GroupChannelLocalBuilder<Tx, Rx, D>
     }
 }
 
-type DataType = ((), LocalTaskType);
-
-#[derive(Clone)]
-pub struct SyncSender(pub mpsc::Sender<DataType>);
-
-unsafe impl Sync for SyncSender {}
-
-impl Deref for SyncSender {
-    type Target = mpsc::Sender<DataType>;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for SyncSender {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl futures::Sink<DataType> for SyncSender {
-    type Error = mpsc::SendError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.0.poll_ready(cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, msg: DataType) -> Result<(), Self::Error> {
-        self.0.start_send(msg)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.0).poll_close(cx)
-    }
-}
+pub type LocalSender<D, E> = mpsc::LocalSender<(D, LocalTaskType), E>;

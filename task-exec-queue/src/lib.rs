@@ -1,14 +1,10 @@
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
-use std::task::{Context, Poll};
+use std::sync::Arc;
 
 use futures::channel::mpsc;
-use futures::task::AtomicWaker;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 
@@ -16,7 +12,7 @@ pub use builder::{Builder, SpawnDefaultExt, SpawnExt};
 pub use exec::{TaskExecQueue, TaskType};
 pub use local::LocalTaskExecQueue;
 pub use local::LocalTaskType;
-pub use local_builder::{LocalBuilder, LocalSpawnExt, SyncSender};
+pub use local_builder::{LocalBuilder, LocalSender, LocalSpawnExt};
 pub use local_spawner::{LocalGroupSpawner, LocalSpawner, TryLocalGroupSpawner, TryLocalSpawner};
 pub use spawner::{GroupSpawner, Spawner, TryGroupSpawner, TrySpawner};
 
@@ -88,31 +84,6 @@ impl IndexSet {
             Some(idx)
         } else {
             None
-        }
-    }
-}
-
-struct PendingOnce {
-    w: Arc<AtomicWaker>,
-    is_ready: bool,
-}
-
-impl PendingOnce {
-    #[inline]
-    fn new(w: Arc<AtomicWaker>) -> Self {
-        Self { w, is_ready: false }
-    }
-}
-
-impl Future for PendingOnce {
-    type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.is_ready {
-            Poll::Ready(())
-        } else {
-            self.w.register(cx.waker());
-            self.is_ready = true;
-            Poll::Pending
         }
     }
 }
@@ -231,8 +202,8 @@ impl<T> From<mpsc::SendError> for Error<T> {
 // Just a helper function to ensure the futures we're returning all have the
 // right implementations.
 pub(crate) fn assert_future<T, F>(future: F) -> F
-    where
-        F: futures::Future<Output=T>,
+where
+    F: futures::Future<Output = T>,
 {
     future
 }
@@ -243,7 +214,7 @@ pub fn set_default(queue: TaskExecQueue) -> Result<(), TaskExecQueue> {
     DEFAULT_EXEC_QUEUE.set(queue)
 }
 
-pub fn init_default() -> impl futures::Future<Output=()> {
+pub fn init_default() -> impl futures::Future<Output = ()> {
     let (queue, runner) = Builder::default().workers(100).queue_max(100_000).build();
     DEFAULT_EXEC_QUEUE.set(queue).ok().unwrap();
     runner

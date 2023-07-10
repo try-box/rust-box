@@ -2,8 +2,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::Unpin;
 
-use futures::channel::mpsc;
-
 use super::{assert_future, default, Spawner, TaskExecQueue, TaskType};
 
 impl<T: ?Sized> SpawnExt for T where T: futures::Future {}
@@ -11,11 +9,11 @@ impl<T: ?Sized> SpawnExt for T where T: futures::Future {}
 pub trait SpawnExt: futures::Future {
     #[inline]
     fn spawn<Tx, G>(self, queue: &TaskExecQueue<Tx, G>) -> Spawner<Self, Tx, G, ()>
-        where
-            Self: Sized + Send + 'static,
-            Self::Output: Send + 'static,
-            Tx: Clone + Unpin + futures::Sink<((), TaskType)> + Send + Sync + 'static,
-            G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+    where
+        Self: Sized + Send + 'static,
+        Self::Output: Send + 'static,
+        Tx: Clone + Unpin + futures::Sink<((), TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
     {
         let f = Spawner::new(queue, self, ());
         assert_future::<_, _>(f)
@@ -27,11 +25,11 @@ pub trait SpawnExt: futures::Future {
         queue: &TaskExecQueue<Tx, G, D>,
         name: D,
     ) -> Spawner<Self, Tx, G, D>
-        where
-            Self: Sized + Send + 'static,
-            Self::Output: Send + 'static,
-            Tx: Clone + Unpin + futures::Sink<(D, TaskType)> + Send + Sync + 'static,
-            G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+    where
+        Self: Sized + Send + 'static,
+        Self::Output: Send + 'static,
+        Tx: Clone + Unpin + futures::Sink<(D, TaskType)> + Send + Sync + 'static,
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
     {
         let f = Spawner::new(queue, self, name);
         assert_future::<_, _>(f)
@@ -42,10 +40,10 @@ impl<T: ?Sized> SpawnDefaultExt for T where T: futures::Future {}
 
 pub trait SpawnDefaultExt: futures::Future {
     #[inline]
-    fn spawn(self) -> Spawner<'static, Self, mpsc::Sender<((), TaskType)>, (), ()>
-        where
-            Self: Sized + Send + 'static,
-            Self::Output: Send + 'static,
+    fn spawn(self) -> Spawner<'static, Self, futures::channel::mpsc::Sender<((), TaskType)>, (), ()>
+    where
+        Self: Sized + Send + 'static,
+        Self::Output: Send + 'static,
     {
         let f = Spawner::new(default(), self, ());
         assert_future::<_, _>(f)
@@ -86,9 +84,9 @@ impl Builder {
 
     #[inline]
     pub fn with_channel<Tx, Rx, D>(self, tx: Tx, rx: Rx) -> ChannelBuilder<Tx, Rx, D>
-        where
-            Tx: Clone + futures::Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
-            Rx: futures::Stream<Item=(D, TaskType)> + Unpin,
+    where
+        Tx: Clone + futures::Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+        Rx: futures::Stream<Item = (D, TaskType)> + Unpin,
     {
         ChannelBuilder {
             builder: self,
@@ -99,8 +97,8 @@ impl Builder {
     }
 
     #[inline]
-    pub fn build(self) -> (TaskExecQueue, impl futures::Future<Output=()>) {
-        let (tx, rx) = mpsc::channel(self.queue_max);
+    pub fn build(self) -> (TaskExecQueue, impl futures::Future<Output = ()>) {
+        let (tx, rx) = futures::channel::mpsc::channel(self.queue_max);
         TaskExecQueue::with_channel(self.workers, self.queue_max, tx, rx)
     }
 }
@@ -114,13 +112,13 @@ impl GroupBuilder {
     pub fn build<G>(
         self,
     ) -> (
-        TaskExecQueue<mpsc::Sender<((), TaskType)>, G>,
-        impl futures::Future<Output=()>,
+        TaskExecQueue<futures::channel::mpsc::Sender<((), TaskType)>, G>,
+        impl futures::Future<Output = ()>,
     )
-        where
-            G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+    where
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
     {
-        let (tx, rx) = mpsc::channel(self.builder.queue_max);
+        let (tx, rx) = futures::channel::mpsc::channel(self.builder.queue_max);
         TaskExecQueue::with_channel(self.builder.workers, self.builder.queue_max, tx, rx)
     }
 }
@@ -133,12 +131,12 @@ pub struct ChannelBuilder<Tx, Rx, D> {
 }
 
 impl<Tx, Rx, D> ChannelBuilder<Tx, Rx, D>
-    where
-        Tx: Clone + futures::Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
-        Rx: futures::Stream<Item=(D, TaskType)> + Unpin,
+where
+    Tx: Clone + futures::Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+    Rx: futures::Stream<Item = (D, TaskType)> + Unpin,
 {
     #[inline]
-    pub fn build(self) -> (TaskExecQueue<Tx, (), D>, impl futures::Future<Output=()>) {
+    pub fn build(self) -> (TaskExecQueue<Tx, (), D>, impl futures::Future<Output = ()>) {
         TaskExecQueue::with_channel(
             self.builder.workers,
             self.builder.queue_max,
@@ -158,14 +156,14 @@ pub struct GroupChannelBuilder<Tx, Rx, D> {
 }
 
 impl<Tx, Rx, D> GroupChannelBuilder<Tx, Rx, D>
-    where
-        Tx: Clone + futures::Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
-        Rx: futures::Stream<Item=((), TaskType)> + Unpin,
+where
+    Tx: Clone + futures::Sink<((), TaskType)> + Unpin + Send + Sync + 'static,
+    Rx: futures::Stream<Item = ((), TaskType)> + Unpin,
 {
     #[inline]
-    pub fn build<G>(self) -> (TaskExecQueue<Tx, G>, impl futures::Future<Output=()>)
-        where
-            G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+    pub fn build<G>(self) -> (TaskExecQueue<Tx, G>, impl futures::Future<Output = ()>)
+    where
+        G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
     {
         TaskExecQueue::with_channel(
             self.builder.builder.workers,

@@ -1,12 +1,13 @@
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::Sink;
 use futures::task::AtomicWaker;
+use futures::Sink;
 
 use super::{Counter, LocalTaskType, TaskType};
 
@@ -41,8 +42,8 @@ impl<Tx, D> Flush<Tx, D> {
 }
 
 impl<Tx, D> Future for Flush<Tx, D>
-    where
-        Tx: Sink<(D, TaskType)> + Unpin,
+where
+    Tx: Sink<(D, TaskType)> + Unpin,
 {
     type Output = Result<(), Tx::Error>;
 
@@ -62,8 +63,8 @@ pub struct LocalFlush<Tx, D> {
     sink: Tx,
     waiting_count: Counter,
     active_count: Counter,
-    is_flushing: Arc<AtomicBool>,
-    w: Arc<AtomicWaker>,
+    is_flushing: Rc<AtomicBool>,
+    w: Rc<AtomicWaker>,
     _d: std::marker::PhantomData<D>,
 }
 
@@ -74,8 +75,8 @@ impl<Tx, D> LocalFlush<Tx, D> {
         sink: Tx,
         waiting_count: Counter,
         active_count: Counter,
-        is_flushing: Arc<AtomicBool>,
-        w: Arc<AtomicWaker>,
+        is_flushing: Rc<AtomicBool>,
+        w: Rc<AtomicWaker>,
     ) -> Self {
         Self {
             sink,
@@ -89,8 +90,8 @@ impl<Tx, D> LocalFlush<Tx, D> {
 }
 
 impl<Tx, D> Future for LocalFlush<Tx, D>
-    where
-        Tx: Sink<(D, LocalTaskType)> + Unpin,
+where
+    Tx: Sink<(D, LocalTaskType)> + Unpin,
 {
     type Output = Result<(), Tx::Error>;
 
