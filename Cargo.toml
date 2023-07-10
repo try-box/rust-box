@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -31,7 +31,7 @@ dequemap-hashmap = ["dequemap/hashmap"]
 [dependencies]
 queue-ext = { version = "0.4.0", path = "./queue-ext", optional = true }
 stream-ext = { version = "0.2.2", path = "./stream-ext", optional = true }
-task-exec-queue = { version = "0.5.0", path = "./task-exec-queue", optional = true }
+task-exec-queue = { version = "0.5.1", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
 std-ext = { version = "0.1.3", path = "./std-ext", optional = true }
 mpsc = { version = "0.2.0", path = "./mpsc", optional = true }
