@@ -1,10 +1,10 @@
 #![allow(unused)]
 #![allow(dead_code)]
 use futures::{stream, AsyncWriteExt, FutureExt, Sink, SinkExt, StreamExt};
-use rust_box::mpsc::channel::{ChildReceiver, ChildSender};
+//use rust_box::mpsc::channel::{ChildReceiver, ChildSender};
 use rust_box::mpsc::{
-    indexmap_channel, segqueue_channel, vecdeque_channel, with_segqueue_channel, Builder, Receiver,
-    SendError, Sender, SharedChannel,
+    indexmap_channel, segqueue_channel, vecdeque_channel, with_segqueue_channel, Receiver,
+    SendError, Sender,
 };
 use std::time::Duration;
 use tokio::task::spawn;

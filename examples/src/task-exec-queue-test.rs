@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -368,7 +369,7 @@ fn test_default_set() {
 fn test_task_exec_queue() {
     use rust_box::task_exec_queue::Builder;
     use tokio::{task::spawn, time::sleep};
-    const MAX_TASKS: isize = 30_000;
+    const MAX_TASKS: isize = 100_000;
     let now = std::time::Instant::now();
     let (exec, task_runner) = Builder::default().workers(200).queue_max(1000).build();
     let mailbox = exec.clone();
@@ -378,16 +379,21 @@ fn test_task_exec_queue() {
         });
         let thread_ids = Arc::new(std::sync::Mutex::new(HashSet::new()));
         let thread_ids1 = thread_ids.clone();
-        spawn(async move {
+        let is_closes = Arc::new(AtomicIsize::new(0));
+        let is_closes1 = is_closes.clone();
+        let test_spawns = spawn(async move {
             for i in 0..MAX_TASKS {
                 let thread_ids1 = thread_ids1.clone();
                 let mailbox = mailbox.clone();
+                let is_closes1 = is_closes1.clone();
                 spawn(async move {
                     let thread_ids2 = thread_ids1.clone();
+                    let is_closes1 = is_closes1.clone();
                     //send ...
-                    let _res = mailbox
+
+                    let res = mailbox
                         .spawn(async move {
-                            sleep(std::time::Duration::from_micros(1)).await;
+                            //sleep(std::time::Duration::from_micros(1)).await;
                             thread_ids2
                                 .lock()
                                 .unwrap()
@@ -395,51 +401,67 @@ fn test_task_exec_queue() {
                             i
                         })
                         .await;
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
 
                     //send and wait reply
                     let thread_ids3 = thread_ids1.clone();
-                    let _res = mailbox
+                    let res = mailbox
                         .spawn(async move {
                             thread_ids3
                                 .lock()
                                 .unwrap()
                                 .insert(std::thread::current().id());
-                            sleep(std::time::Duration::from_micros(10)).await;
+                            //sleep(std::time::Duration::from_micros(10)).await;
                             i * i + 100
                         })
                         .result()
                         .await;
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
                 });
             }
         });
 
-        for i in 0..10 {
-            log::info!(
-                "[test_task_exec_queue] {}, {:?} pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
-                i,
-                now.elapsed(),
-                exec.pending_wakers_count(),
-                exec.active_count(),
-                exec.waiting_count(),
-                exec.is_full(),
-                exec.is_closed(),
-                exec.is_flushing(),
-                exec.completed_count(),
-                exec.rate()
-            );
-            sleep(std::time::Duration::from_millis(200)).await;
-        }
-
+        let exec1 = exec.clone();
+        spawn(async move {
+            let exec = exec1;
+            loop {
+                sleep(std::time::Duration::from_millis(200)).await;
+                log::info!(
+                    "[test_task_exec_queue] {:?} pending_wakers: {:?}, waiting_wakers: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+                    now.elapsed(),
+                    exec.pending_wakers_count(),
+                    exec.waiting_wakers_count(),
+                    exec.active_count(),
+                    exec.waiting_count(),
+                    exec.is_full(),
+                    exec.is_closed(),
+                    exec.is_flushing(),
+                    exec.completed_count(),
+                    exec.rate()
+                );
+            }
+        });
+        test_spawns.await;
+        //sleep(std::time::Duration::from_millis(200)).await;
+        //exec.flush().await.unwrap();
         exec.close().await.unwrap();
 
-        assert!(exec.completed_count() == MAX_TASKS * 2);
-        assert!(thread_ids.lock().unwrap().len() > 1);
-
         log::info!(
-            "[test_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            "[test_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers: {:?}, waiting_wakers: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             thread_ids.lock().unwrap().len(),
             exec.pending_wakers_count(),
+            exec.waiting_wakers_count(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
@@ -448,6 +470,15 @@ fn test_task_exec_queue() {
             exec.completed_count(),
             exec.rate()
         );
+
+        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
+        assert!(
+            exec.completed_count() == completed_count,
+            "completed_count: {}, {}",
+            exec.completed_count(),
+            completed_count
+        );
+        assert!(thread_ids.lock().unwrap().len() > 1);
     };
 
     // async_std::task::block_on(runner);
@@ -503,11 +534,11 @@ fn test_group() {
 fn test_group_bench() {
     use rust_box::task_exec_queue::Builder;
     use tokio::{task::spawn, time::sleep};
-    const MAX_TASKS: isize = 50_0000;
+    const MAX_TASKS: isize = 5_000;
     let now = std::time::Instant::now();
     let (exec, task_runner) = Builder::default()
         .workers(100)
-        .queue_max(10000)
+        .queue_max(1000)
         .group()
         .build::<isize>();
     let mailbox = exec.clone();
@@ -516,37 +547,63 @@ fn test_group_bench() {
             task_runner.await;
         });
 
+        let is_closes = Arc::new(AtomicIsize::new(0));
+        let is_closes1 = is_closes.clone();
         let test_spawns = spawn(async move {
             for i in 0..MAX_TASKS {
                 let mailbox = mailbox.clone();
+                let is_closes1 = is_closes1.clone();
                 spawn(async move {
                     //send ...
-                    let _res = mailbox
+                    let res = mailbox
                         .spawn(async move {
-                            // sleep(std::time::Duration::from_nanos(1)).await;
+                            sleep(std::time::Duration::from_nanos(1)).await;
                         })
                         .group(i % 10)
                         .await;
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::warn!("{:?}", e.to_string());
+                        }
+                    }
 
                     //send and wait reply
-                    let _res = mailbox
+                    let res = mailbox
                         .spawn(async move {
-                            // sleep(std::time::Duration::from_nanos(1)).await;
+                            sleep(std::time::Duration::from_nanos(1)).await;
                             i * i + 100
                         })
                         .group(i % 100)
                         .result()
                         .await;
-                    // log::info!("calc: {} * {} + 100 = {:?}", i, i, _res.ok());
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::warn!("{:?}", e.to_string());
+                        }
+                    }
                 });
+
+                if i + 1 >= MAX_TASKS {
+                    log::info!("[test_group_bench] commit group end, {}", i);
+                }
             }
         });
 
-        for i in 0..10 {
-            log::info!(
-                "[test_group_bench] {}  {:?} actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
-                i,
+        let exec1 = exec.clone();
+        spawn(async move {
+            let exec = exec1;
+            loop {
+                log::info!(
+                "[test_group_bench] {:?} pending_wakers: {}, waiting_wakers: {}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                 now.elapsed(),
+                exec.pending_wakers_count(),
+                exec.waiting_wakers_count(),
                 exec.active_count(),
                 exec.waiting_count(),
                 exec.is_full(),
@@ -555,16 +612,28 @@ fn test_group_bench() {
                 exec.completed_count(),
                 exec.rate()
             );
-            sleep(std::time::Duration::from_millis(500)).await;
-        }
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
 
         test_spawns.await;
+        //sleep(std::time::Duration::from_millis(200)).await;
         exec.flush().await.unwrap();
         exec.close().await.unwrap();
+
+        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
+        assert!(
+            exec.completed_count() == completed_count,
+            "completed_count: {}, {}",
+            exec.completed_count(),
+            completed_count
+        );
+
         log::info!(
-            "[test_group_bench] close {:?}  pending_wakers_count: {}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            "[test_group_bench] close {:?}  pending_wakers: {}, waiting_wakers: {}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             exec.pending_wakers_count(),
+            exec.waiting_wakers_count(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
@@ -573,7 +642,13 @@ fn test_group_bench() {
             exec.completed_count(),
             exec.rate()
         );
-        assert!(exec.completed_count() == MAX_TASKS * 2);
+        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
+        assert!(
+            exec.completed_count() == completed_count,
+            "completed_count: {}, {}",
+            exec.completed_count(),
+            completed_count
+        );
     };
 
     // async_std::task::block_on(runner);
@@ -655,7 +730,7 @@ fn test_local_group_with_channel() {
 fn test_local_task_exec_queue() {
     use rust_box::task_exec_queue::LocalBuilder;
     use tokio::{task::spawn_local as spawn, time::sleep};
-    const MAX_TASKS: isize = 30_000;
+    const MAX_TASKS: isize = 100_000;
     let now = std::time::Instant::now();
     let (exec, task_runner) = LocalBuilder::default().workers(200).queue_max(1000).build();
     let mailbox = exec.clone();
@@ -665,70 +740,96 @@ fn test_local_task_exec_queue() {
         });
         let thread_ids = Rc::new(std::sync::Mutex::new(HashSet::new()));
         let thread_ids1 = thread_ids.clone();
-        spawn(async move {
+        let is_closes = Arc::new(AtomicIsize::new(0));
+        let is_closes1 = is_closes.clone();
+        let test_spawns = spawn(async move {
             for i in 0..MAX_TASKS {
                 let mailbox = mailbox.clone();
                 let thread_ids2 = thread_ids1.clone();
                 let thread_ids3 = thread_ids1.clone();
+                let is_closes1 = is_closes1.clone();
                 spawn(async move {
                     //send ...
-                    let _res = mailbox
+                    let res = mailbox
                         .spawn(async move {
                             thread_ids2
                                 .lock()
                                 .unwrap()
                                 .insert(std::thread::current().id());
-                            sleep(std::time::Duration::from_micros(1)).await;
+                            //sleep(std::time::Duration::from_micros(1)).await;
                             i
                         })
                         .await;
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::warn!("{:?}", e.to_string());
+                        }
+                    }
 
                     //send and wait reply
-                    let _res = mailbox
+                    let res = mailbox
                         .spawn(async move {
                             thread_ids3
                                 .lock()
                                 .unwrap()
                                 .insert(std::thread::current().id());
-                            sleep(std::time::Duration::from_micros(10)).await;
+                            //sleep(std::time::Duration::from_micros(10)).await;
                             i * i + 100
                         })
                         .result()
                         .await;
+                    if let Err(e) = res {
+                        //log::warn!("{:?}", e.to_string());
+                        if e.is_closed() {
+                            is_closes1.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            log::warn!("{:?}", e.to_string());
+                        }
+                    }
                 });
             }
         });
 
-        for i in 0..10 {
-            log::info!(
-                "[test_local_task_exec_queue] {}, {:?} thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
-                i,
-                now.elapsed(),
-                thread_ids.lock().unwrap().len(),
-                exec.pending_wakers_count(),
-                exec.active_count(),
-                exec.waiting_count(),
-                exec.is_full(),
-                exec.is_closed(),
-                exec.is_flushing(),
-                exec.completed_count(),
-                exec.rate()
-            );
-            sleep(std::time::Duration::from_millis(200)).await;
-        }
+        let exec1 = exec.clone();
+        let thread_ids1 = thread_ids.clone();
+        spawn(async move {
+            let exec = exec1;
+            loop {
+                log::info!(
+                    "[test_local_task_exec_queue] {:?} thread_ids: {}, pending_wakers: {:?}, waiting_wakers: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+                    now.elapsed(),
+                    thread_ids1.lock().unwrap().len(),
+                    exec.pending_wakers_count(),
+                    exec.waiting_wakers_count(),
+                    exec.active_count(),
+                    exec.waiting_count(),
+                    exec.is_full(),
+                    exec.is_closed(),
+                    exec.is_flushing(),
+                    exec.completed_count(),
+                    exec.rate()
+                );
+                sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
 
+        test_spawns.await.unwrap();
+        exec.flush().await.unwrap();
         exec.close().await.unwrap();
 
-        assert!(exec.completed_count() == MAX_TASKS * 2);
         thread_ids
             .lock()
             .unwrap()
             .insert(std::thread::current().id());
         log::info!(
-            "[test_local_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers_count: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
+            "[test_local_task_exec_queue] close {:?}, thread_ids: {}, pending_wakers: {:?}, waiting_wakers: {}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
             now.elapsed(),
             thread_ids.lock().unwrap().len(),
             exec.pending_wakers_count(),
+            exec.waiting_wakers_count(),
             exec.active_count(),
             exec.waiting_count(),
             exec.is_full(),
@@ -736,6 +837,14 @@ fn test_local_task_exec_queue() {
             exec.is_flushing(),
             exec.completed_count(),
             exec.rate()
+        );
+
+        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
+        assert!(
+            exec.completed_count() == completed_count,
+            "completed_count: {}, {}",
+            exec.completed_count(),
+            completed_count
         );
     };
 

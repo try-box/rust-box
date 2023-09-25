@@ -49,4 +49,8 @@ fn test_dequemap() {
     let items: Vec<(i32, i32)> = map.iter().map(|t| (*t.0, *t.1)).collect();
     println!("items: {:?}", items);
     assert_eq!(items, [(1, 10), (9, 900), (3, 30)]);
+
+    println!("map.capacity(): {:?}", map.capacity());
+    map.shrink_to_fit();
+    println!("map.capacity(): {:?}", map.capacity());
 }
