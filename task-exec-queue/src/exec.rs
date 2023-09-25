@@ -36,10 +36,11 @@ pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     completed_count: Counter,
     #[cfg(feature = "rate")]
     rate_counter: Arc<RwLock<DiscreteRateCounter>>,
-    flush_waker: Arc<AtomicWaker>,
-    is_flushing: Arc<AtomicBool>,
+    pub(crate) flush_waker: Arc<AtomicWaker>,
+    pub(crate) is_flushing: Arc<AtomicBool>,
     is_closed: Arc<AtomicBool>,
-    pending_wakers: Arc<crossbeam_queue::SegQueue<Arc<AtomicWaker>>>,
+    pending_wakers: Wakers,
+    pub(crate) waiting_wakers: Wakers,
     //group
     group_channels: GroupChannels<G>,
     _d: std::marker::PhantomData<D>,
@@ -64,6 +65,7 @@ where
             is_flushing: self.is_flushing.clone(),
             is_closed: self.is_closed.clone(),
             pending_wakers: self.pending_wakers.clone(),
+            waiting_wakers: self.waiting_wakers.clone(),
             group_channels: self.group_channels.clone(),
             _d: std::marker::PhantomData,
         }
@@ -97,7 +99,8 @@ where
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
             is_closed: Arc::new(AtomicBool::new(false)),
-            pending_wakers: Arc::new(crossbeam_queue::SegQueue::new()),
+            pending_wakers: new_wakers(),
+            waiting_wakers: new_wakers(),
             group_channels: Arc::new(DashMap::default()),
             _d: std::marker::PhantomData,
         };
@@ -128,28 +131,16 @@ where
     }
 
     #[inline]
-    pub fn flush(&self) -> Flush<Tx, D> {
+    pub fn flush(&self) -> Flush<'_, Tx, G, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
-        Flush::new(
-            self.tx.clone(),
-            self.waiting_count.clone(),
-            self.active_count.clone(),
-            self.is_flushing.clone(),
-            self.flush_waker.clone(),
-        )
+        Flush::new(self)
     }
 
     #[inline]
-    pub fn close(&self) -> Close<Tx, D> {
+    pub fn close(&self) -> Close<'_, Tx, G, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
         self.is_closed.store(true, Ordering::SeqCst);
-        Close::new(
-            self.tx.clone(),
-            self.waiting_count.clone(),
-            self.active_count.clone(),
-            self.is_flushing.clone(),
-            self.flush_waker.clone(),
-        )
+        Close::new(self)
     }
 
     #[inline]
@@ -178,6 +169,11 @@ where
     }
 
     #[inline]
+    pub fn waiting_wakers_count(&self) -> usize {
+        self.waiting_wakers.len()
+    }
+
+    #[inline]
     #[cfg(feature = "rate")]
     pub fn rate(&self) -> f64 {
         self.rate_counter.read().rate()
@@ -186,6 +182,14 @@ where
     #[inline]
     pub fn is_full(&self) -> bool {
         self.waiting_count() >= self.queue_max
+    }
+
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.waiting_count() > 0
+            || self.active_count() > 0
+            || self.pending_wakers_count() > 0
+            || self.waiting_wakers_count() > 0
     }
 
     #[inline]
@@ -251,7 +255,7 @@ where
                         }
                     }
 
-                    if exec.is_flushing() && rx.is_empty() {
+                    if exec.is_flushing() && rx.is_empty() && !exec.is_active() {
                         exec.flush_waker.wake();
                     }
                 }
@@ -315,10 +319,6 @@ where
 
     #[inline]
     pub(crate) async fn group_send(&self, name: G, task: TaskType) -> Result<(), Error<TaskType>> {
-        if self.is_closed() {
-            return Err(Error::SendError(ErrorType::Closed(Some(task))));
-        }
-
         let gt_queue = self
             .group_channels
             .entry(name.clone())
@@ -417,14 +417,14 @@ impl OneValue {
     }
 }
 
-struct PendingOnce {
+pub(crate) struct PendingOnce {
     w: Arc<AtomicWaker>,
     is_ready: bool,
 }
 
 impl PendingOnce {
     #[inline]
-    fn new(w: Arc<AtomicWaker>) -> Self {
+    pub(crate) fn new(w: Arc<AtomicWaker>) -> Self {
         Self { w, is_ready: false }
     }
 }
@@ -440,4 +440,11 @@ impl Future for PendingOnce {
             Poll::Pending
         }
     }
+}
+
+type Wakers = Arc<crossbeam_queue::SegQueue<Arc<AtomicWaker>>>;
+
+#[inline]
+fn new_wakers() -> Wakers {
+    Arc::new(crossbeam_queue::SegQueue::new())
 }

@@ -1,107 +1,74 @@
+use std::fmt::Debug;
 use std::future::Future;
+use std::hash::Hash;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 
-use futures::task::AtomicWaker;
 use futures::Sink;
 
-use super::{Counter, LocalTaskType, TaskType};
+use super::{LocalTaskExecQueue, LocalTaskType, TaskExecQueue, TaskType};
 
-pub struct Flush<Tx, D> {
-    sink: Tx,
-    waiting_count: Counter,
-    active_count: Counter,
-    is_flushing: Arc<AtomicBool>,
-    w: Arc<AtomicWaker>,
-    _d: std::marker::PhantomData<D>,
+pub struct Flush<'a, Tx, G, D> {
+    sink: &'a TaskExecQueue<Tx, G, D>,
 }
 
-impl<Tx, D> Unpin for Flush<Tx, D> {}
+impl<'a, Tx, G, D> Unpin for Flush<'a, Tx, G, D> {}
 
-impl<Tx, D> Flush<Tx, D> {
-    pub(crate) fn new(
-        sink: Tx,
-        waiting_count: Counter,
-        active_count: Counter,
-        is_flushing: Arc<AtomicBool>,
-        w: Arc<AtomicWaker>,
-    ) -> Self {
-        Self {
-            sink,
-            waiting_count,
-            active_count,
-            is_flushing,
-            w,
-            _d: std::marker::PhantomData,
-        }
+impl<'a, Tx, G, D> Flush<'a, Tx, G, D> {
+    pub(crate) fn new(sink: &'a TaskExecQueue<Tx, G, D>) -> Self {
+        Self { sink }
     }
 }
 
-impl<Tx, D> Future for Flush<Tx, D>
+impl<'a, Tx, G, D> Future for Flush<'a, Tx, G, D>
 where
-    Tx: Sink<(D, TaskType)> + Unpin,
+    Tx: Clone + Sink<(D, TaskType)> + Unpin + Send + Sync + 'static,
+    G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
 {
     type Output = Result<(), Tx::Error>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        futures::ready!(Pin::new(&mut self.sink).poll_flush(cx))?;
-        if self.waiting_count.value() > 0 || self.active_count.value() > 0 {
-            self.w.register(cx.waker());
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        futures::ready!(Pin::new(&mut this.sink.tx.clone()).poll_flush(cx))?;
+        if this.sink.is_active() {
+            this.sink.flush_waker.register(cx.waker());
             Poll::Pending
         } else {
-            self.is_flushing.store(false, Ordering::SeqCst);
+            this.sink.is_flushing.store(false, Ordering::SeqCst);
             Poll::Ready(Ok(()))
         }
     }
 }
 
-pub struct LocalFlush<Tx, D> {
-    sink: Tx,
-    waiting_count: Counter,
-    active_count: Counter,
-    is_flushing: Rc<AtomicBool>,
-    w: Rc<AtomicWaker>,
-    _d: std::marker::PhantomData<D>,
+pub struct LocalFlush<'a, Tx, G, D> {
+    sink: &'a LocalTaskExecQueue<Tx, G, D>,
 }
 
-impl<Tx, D> Unpin for LocalFlush<Tx, D> {}
+impl<'a, Tx, G, D> Unpin for LocalFlush<'a, Tx, G, D> {}
 
-impl<Tx, D> LocalFlush<Tx, D> {
-    pub(crate) fn new(
-        sink: Tx,
-        waiting_count: Counter,
-        active_count: Counter,
-        is_flushing: Rc<AtomicBool>,
-        w: Rc<AtomicWaker>,
-    ) -> Self {
-        Self {
-            sink,
-            waiting_count,
-            active_count,
-            is_flushing,
-            w,
-            _d: std::marker::PhantomData,
-        }
+impl<'a, Tx, G, D> LocalFlush<'a, Tx, G, D> {
+    pub(crate) fn new(sink: &'a LocalTaskExecQueue<Tx, G, D>) -> Self {
+        Self { sink }
     }
 }
 
-impl<Tx, D> Future for LocalFlush<Tx, D>
+impl<'a, Tx, G, D> Future for LocalFlush<'a, Tx, G, D>
 where
-    Tx: Sink<(D, LocalTaskType)> + Unpin,
+    Tx: Clone + Sink<(D, LocalTaskType)> + Unpin + 'static,
+    G: Hash + Eq + Clone + Debug + 'static,
 {
     type Output = Result<(), Tx::Error>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        futures::ready!(Pin::new(&mut self.sink).poll_flush(cx))?;
-        if self.waiting_count.value() > 0 || self.active_count.value() > 0 {
-            self.w.register(cx.waker());
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        futures::ready!(Pin::new(&mut this.sink.tx.clone()).poll_flush(cx))?;
+        if this.sink.is_active() {
+            this.sink.flush_waker.register(cx.waker());
             Poll::Pending
         } else {
-            self.is_flushing.store(false, Ordering::SeqCst);
+            this.sink.is_flushing.store(false, Ordering::SeqCst);
             Poll::Ready(Ok(()))
         }
     }

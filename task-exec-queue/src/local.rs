@@ -37,10 +37,11 @@ pub struct LocalTaskExecQueue<Tx = LocalSender<(), mpsc::SendError>, G = (), D =
     completed_count: Counter,
     #[cfg(feature = "rate")]
     rate_counter: Rc<RwLock<DiscreteRateCounter>>,
-    flush_waker: Rc<AtomicWaker>,
-    is_flushing: Rc<AtomicBool>,
+    pub(crate) flush_waker: Rc<AtomicWaker>,
+    pub(crate) is_flushing: Rc<AtomicBool>,
     is_closed: Rc<AtomicBool>,
-    pending_wakers: Rc<crossbeam_queue::SegQueue<Rc<AtomicWaker>>>,
+    pending_wakers: Wakers,
+    pub(crate) waiting_wakers: Wakers,
     //group
     group_channels: GroupChannels<G>,
     _d: std::marker::PhantomData<D>,
@@ -65,6 +66,7 @@ where
             is_flushing: self.is_flushing.clone(),
             is_closed: self.is_closed.clone(),
             pending_wakers: self.pending_wakers.clone(),
+            waiting_wakers: self.waiting_wakers.clone(),
             group_channels: self.group_channels.clone(),
             _d: std::marker::PhantomData,
         }
@@ -98,7 +100,8 @@ where
             flush_waker: Rc::new(AtomicWaker::new()),
             is_flushing: Rc::new(AtomicBool::new(false)),
             is_closed: Rc::new(AtomicBool::new(false)),
-            pending_wakers: Rc::new(crossbeam_queue::SegQueue::new()),
+            pending_wakers: new_wakers(),
+            waiting_wakers: new_wakers(),
             group_channels: Rc::new(DashMap::default()),
             _d: std::marker::PhantomData,
         };
@@ -129,28 +132,16 @@ where
     }
 
     #[inline]
-    pub fn flush(&self) -> LocalFlush<Tx, D> {
+    pub fn flush(&self) -> LocalFlush<'_, Tx, G, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
-        LocalFlush::new(
-            self.tx.clone(),
-            self.waiting_count.clone(),
-            self.active_count.clone(),
-            self.is_flushing.clone(),
-            self.flush_waker.clone(),
-        )
+        LocalFlush::new(self)
     }
 
     #[inline]
-    pub fn close(&self) -> LocalClose<Tx, D> {
+    pub fn close(&self) -> LocalClose<'_, Tx, G, D> {
         self.is_flushing.store(true, Ordering::SeqCst);
         self.is_closed.store(true, Ordering::SeqCst);
-        LocalClose::new(
-            self.tx.clone(),
-            self.waiting_count.clone(),
-            self.active_count.clone(),
-            self.is_flushing.clone(),
-            self.flush_waker.clone(),
-        )
+        LocalClose::new(self)
     }
 
     #[inline]
@@ -179,6 +170,11 @@ where
     }
 
     #[inline]
+    pub fn waiting_wakers_count(&self) -> usize {
+        self.waiting_wakers.len()
+    }
+
+    #[inline]
     #[cfg(feature = "rate")]
     pub fn rate(&self) -> f64 {
         self.rate_counter.read().rate()
@@ -187,6 +183,14 @@ where
     #[inline]
     pub fn is_full(&self) -> bool {
         self.waiting_count() >= self.queue_max
+    }
+
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.waiting_count() > 0
+            || self.active_count() > 0
+            || self.pending_wakers_count() > 0
+            || self.waiting_wakers_count() > 0
     }
 
     #[inline]
@@ -252,7 +256,7 @@ where
                         }
                     }
 
-                    if exec.is_flushing() && rx.is_empty() {
+                    if exec.is_flushing() && rx.is_empty() && !exec.is_active() {
                         exec.flush_waker.wake();
                     }
                 }
@@ -320,10 +324,6 @@ where
         name: G,
         task: LocalTaskType,
     ) -> Result<(), Error<LocalTaskType>> {
-        if self.is_closed() {
-            return Err(Error::SendError(ErrorType::Closed(Some(task))));
-        }
-
         let gt_queue = self
             .group_channels
             .entry(name.clone())
@@ -422,14 +422,14 @@ impl OneValue {
     }
 }
 
-struct LocalPendingOnce {
+pub(crate) struct LocalPendingOnce {
     w: Rc<AtomicWaker>,
     is_ready: bool,
 }
 
 impl LocalPendingOnce {
     #[inline]
-    fn new(w: Rc<AtomicWaker>) -> Self {
+    pub(crate) fn new(w: Rc<AtomicWaker>) -> Self {
         Self { w, is_ready: false }
     }
 }
@@ -445,4 +445,11 @@ impl Future for LocalPendingOnce {
             Poll::Pending
         }
     }
+}
+
+type Wakers = Rc<crossbeam_queue::SegQueue<Rc<AtomicWaker>>>;
+
+#[inline]
+fn new_wakers() -> Wakers {
+    Rc::new(crossbeam_queue::SegQueue::new())
 }

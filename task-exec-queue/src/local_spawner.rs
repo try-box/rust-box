@@ -1,9 +1,12 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::task::{Context, Poll};
 
+use crate::local::LocalPendingOnce;
 use futures::channel::oneshot;
+use futures::task::AtomicWaker;
 use futures::{Future, Sink, SinkExt};
 use futures_lite::FutureExt;
 
@@ -14,6 +17,7 @@ use super::{assert_future, Error, ErrorType, LocalTaskExecQueue};
 pub struct LocalGroupSpawner<'a, Item, Tx, G> {
     inner: LocalSpawner<'a, Item, Tx, G, ()>,
     name: Option<G>,
+    is_pending: bool,
 }
 
 impl<Item, Tx, G> Unpin for LocalGroupSpawner<'_, Item, Tx, G> {}
@@ -28,6 +32,7 @@ where
         Self {
             inner,
             name: Some(name),
+            is_pending: false,
         }
     }
 
@@ -37,6 +42,16 @@ where
         Item: Future + 'static,
         Item::Output: 'static,
     {
+        if self.inner.sink.is_closed() {
+            return Err(Error::SendError(ErrorType::Closed(self.inner.item.take())));
+        }
+
+        if self.inner.sink.is_full() {
+            let w = Rc::new(AtomicWaker::new());
+            self.inner.sink.waiting_wakers.push(w.clone());
+            LocalPendingOnce::new(w).await;
+        }
+
         let task = match self.inner.item.take() {
             Some(task) => task,
             None => {
@@ -53,14 +68,14 @@ where
             }
         };
 
-        if self.inner.sink.is_closed() {
-            return Err(Error::SendError(ErrorType::Closed(Some(task))));
-        }
-
         let (res_tx, res_rx) = oneshot::channel();
         let waiting_count = self.inner.sink.waiting_count.clone();
+        let waiting_wakers = self.inner.sink.waiting_wakers.clone();
         let task = async move {
             waiting_count.dec();
+            if let Some(w) = waiting_wakers.pop() {
+                w.wake();
+            }
             let output = task.await;
             if let Err(_e) = res_tx.send(output) {
                 log::warn!("send result failed");
@@ -96,6 +111,20 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
+        if this.inner.sink.is_closed() && !this.is_pending {
+            return Poll::Ready(Err(Error::SendError(ErrorType::Closed(
+                this.inner.item.take(),
+            ))));
+        }
+
+        if this.inner.sink.is_full() {
+            let w = Rc::new(AtomicWaker::new());
+            w.register(cx.waker());
+            this.inner.sink.waiting_wakers.push(w);
+            this.is_pending = true;
+            return Poll::Pending;
+        }
+
         let task = match this.inner.item.take() {
             Some(task) => task,
             None => {
@@ -116,8 +145,12 @@ where
             return Poll::Ready(Err(Error::SendError(ErrorType::Closed(Some(task)))));
         }
         let waiting_count = this.inner.sink.waiting_count.clone();
+        let waiting_wakers = this.inner.sink.waiting_wakers.clone();
         let task = async move {
             waiting_count.dec();
+            if let Some(w) = waiting_wakers.pop() {
+                w.wake();
+            }
             let _ = task.await;
         };
         this.inner.sink.waiting_count.inc();
@@ -127,6 +160,7 @@ where
             .sink
             .group_send(name, Box::new(Box::pin(task)))
             .boxed_local();
+
         if (futures::ready!(group_send.poll(cx))).is_err() {
             this.inner.sink.waiting_count.dec();
             Poll::Ready(Err(Error::SendError(ErrorType::Closed(None))))
@@ -153,6 +187,7 @@ where
             inner: LocalGroupSpawner {
                 inner,
                 name: Some(name),
+                is_pending: false,
             },
         }
     }
@@ -198,6 +233,7 @@ pub struct LocalSpawner<'a, Item, Tx, G, D> {
     sink: &'a LocalTaskExecQueue<Tx, G, D>,
     item: Option<Item>,
     d: Option<D>,
+    is_pending: bool,
 }
 
 impl<'a, Item, Tx, G, D> Unpin for LocalSpawner<'a, Item, Tx, G, D> {}
@@ -229,6 +265,7 @@ where
             sink,
             item: Some(item),
             d: Some(d),
+            is_pending: false,
         }
     }
 
@@ -238,6 +275,16 @@ where
         Item: Future + 'static,
         Item::Output: 'static,
     {
+        if self.sink.is_closed() {
+            return Err(Error::SendError(ErrorType::Closed(self.item.take())));
+        }
+
+        if self.sink.is_full() {
+            let w = Rc::new(AtomicWaker::new());
+            self.sink.waiting_wakers.push(w.clone());
+            LocalPendingOnce::new(w).await;
+        }
+
         let task = self
             .item
             .take()
@@ -247,14 +294,14 @@ where
             .take()
             .expect("polled Feed after completion, d is None!");
 
-        if self.sink.is_closed() {
-            return Err(Error::SendError(ErrorType::Closed(Some(task))));
-        }
-
         let (res_tx, res_rx) = oneshot::channel();
         let waiting_count = self.sink.waiting_count.clone();
+        let waiting_wakers = self.sink.waiting_wakers.clone();
         let task = async move {
             waiting_count.dec();
+            if let Some(w) = waiting_wakers.pop() {
+                w.wake();
+            }
             let output = task.await;
             if let Err(_e) = res_tx.send(output) {
                 log::warn!("send result failed");
@@ -291,6 +338,19 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
+
+        if this.sink.is_closed() && !this.is_pending {
+            return Poll::Ready(Err(Error::SendError(ErrorType::Closed(this.item.take()))));
+        }
+
+        if this.sink.is_full() {
+            let w = Rc::new(AtomicWaker::new());
+            w.register(cx.waker());
+            this.sink.waiting_wakers.push(w);
+            this.is_pending = true;
+            return Poll::Pending;
+        }
+
         let task = match this.item.take() {
             Some(task) => task,
             None => {
@@ -307,17 +367,17 @@ where
             }
         };
 
-        if this.sink.is_closed() {
-            return Poll::Ready(Err(Error::SendError(ErrorType::Closed(Some(task)))));
-        }
-
         let mut tx = this.sink.tx.clone();
         let mut sink = Pin::new(&mut tx);
-        futures::ready!(sink.as_mut().poll_ready(cx))
-            .map_err(|_| Error::SendError(ErrorType::Closed(None)))?;
+        //futures::ready!(sink.as_mut().poll_ready(cx))
+        //    .map_err(|_| Error::SendError(ErrorType::Closed(None)))?;
         let waiting_count = this.sink.waiting_count.clone();
+        let waiting_wakers = this.sink.waiting_wakers.clone();
         let task = async move {
             waiting_count.dec();
+            if let Some(w) = waiting_wakers.pop() {
+                w.wake();
+            }
             let _ = task.await;
         };
         this.sink.waiting_count.inc();
@@ -365,6 +425,7 @@ where
                 sink,
                 item: Some(item),
                 d: Some(d),
+                is_pending: false,
             },
         }
     }
