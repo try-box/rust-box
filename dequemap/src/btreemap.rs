@@ -178,6 +178,16 @@ where
             None
         }
     }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.indices.shrink_to_fit();
+    }
+
+    #[inline]
+    pub fn capacity(&mut self) -> usize {
+        self.indices.capacity()
+    }
 }
 
 impl<K, V> DequeMap<K, V> {
