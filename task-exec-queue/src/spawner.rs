@@ -17,7 +17,6 @@ use super::{assert_future, Error, ErrorType, TaskExecQueue};
 pub struct GroupSpawner<'a, Item, Tx, G> {
     inner: Spawner<'a, Item, Tx, G, ()>,
     name: Option<G>,
-    is_pending: bool,
 }
 
 impl<Item, Tx, G> Unpin for GroupSpawner<'_, Item, Tx, G> {}
@@ -32,8 +31,13 @@ where
         Self {
             inner,
             name: Some(name),
-            is_pending: false,
         }
+    }
+
+    #[inline]
+    pub fn quickly(mut self) -> Self {
+        self.inner.quickly = true;
+        self
     }
 
     #[inline]
@@ -46,7 +50,7 @@ where
             return Err(Error::SendError(ErrorType::Closed(self.inner.item.take())));
         }
 
-        if self.inner.sink.is_full() {
+        if !self.inner.quickly && self.inner.sink.is_full() {
             let w = Arc::new(AtomicWaker::new());
             self.inner.sink.waiting_wakers.push(w.clone());
             PendingOnce::new(w).await;
@@ -111,17 +115,17 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        if this.inner.sink.is_closed() && !this.is_pending {
+        if this.inner.sink.is_closed() && !this.inner.is_pending {
             return Poll::Ready(Err(Error::SendError(ErrorType::Closed(
                 this.inner.item.take(),
             ))));
         }
 
-        if this.inner.sink.is_full() {
+        if !this.inner.quickly && this.inner.sink.is_full() {
             let w = Arc::new(AtomicWaker::new());
             w.register(cx.waker());
             this.inner.sink.waiting_wakers.push(w);
-            this.is_pending = true;
+            this.inner.is_pending = true;
             return Poll::Pending;
         }
 
@@ -184,7 +188,6 @@ where
             inner: GroupSpawner {
                 inner,
                 name: Some(name),
-                is_pending: false,
             },
         }
     }
@@ -230,6 +233,7 @@ pub struct Spawner<'a, Item, Tx, G, D> {
     sink: &'a TaskExecQueue<Tx, G, D>,
     item: Option<Item>,
     d: Option<D>,
+    quickly: bool,
     is_pending: bool,
 }
 
@@ -262,8 +266,15 @@ where
             sink,
             item: Some(item),
             d: Some(d),
+            quickly: false,
             is_pending: false,
         }
+    }
+
+    #[inline]
+    pub fn quickly(mut self) -> Self {
+        self.quickly = true;
+        self
     }
 
     #[inline]
@@ -276,7 +287,7 @@ where
             return Err(Error::SendError(ErrorType::Closed(self.item.take())));
         }
 
-        if self.sink.is_full() {
+        if !self.quickly && self.sink.is_full() {
             let w = Arc::new(AtomicWaker::new());
             self.sink.waiting_wakers.push(w.clone());
             PendingOnce::new(w).await;
@@ -340,7 +351,7 @@ where
             return Poll::Ready(Err(Error::SendError(ErrorType::Closed(this.item.take()))));
         }
 
-        if this.sink.is_full() {
+        if !this.quickly && this.sink.is_full() {
             let w = Arc::new(AtomicWaker::new());
             w.register(cx.waker());
             this.sink.waiting_wakers.push(w);
@@ -366,8 +377,7 @@ where
 
         let mut tx = this.sink.tx.clone();
         let mut sink = Pin::new(&mut tx);
-        //futures::ready!(sink.as_mut().poll_ready(cx))
-        //    .map_err(|_| Error::SendError(ErrorType::Closed(None)))?;
+
         let waiting_count = this.sink.waiting_count.clone();
         let waiting_wakers = this.sink.waiting_wakers.clone();
         let task = async move {
@@ -422,9 +432,16 @@ where
                 sink,
                 item: Some(item),
                 d: Some(d),
+                quickly: false,
                 is_pending: false,
             },
         }
+    }
+
+    #[inline]
+    pub fn quickly(mut self) -> Self {
+        self.inner.quickly = true;
+        self
     }
 
     #[inline]
