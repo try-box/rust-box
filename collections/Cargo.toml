@@ -1,0 +1,30 @@
+[package]
+name = "collections"
+version = "0.1.0"
+authors = ["try <trywen@qq.com>"]
+edition = "2018"
+rust-version = "1.47"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/queue"
+homepage = "https://github.com/try-box/rust-box/tree/main/queue"
+description = "A no_std compatible implementation of the queue crate"
+keywords = ["collections", "no_std"]
+categories = ["data-structures", "no-std"]
+
+[features]
+default = ["std"]
+std = []
+binary-heap = []
+priority-queue = []
+
+[dependencies]
+serde = { version = "1.0", optional = true, default-features = false}
+
+[dev-dependencies]
+bincode = "1.3"
+
+[package.metadata.docs.rs]
+features = ["serde"]
+
+
+
