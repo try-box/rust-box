@@ -6,6 +6,46 @@ use std::task::{Context, Poll};
 
 pub use queue_ext::SendError;
 
+///BinaryHeap based channel
+#[cfg(feature = "priority")]
+#[allow(clippy::type_complexity)]
+pub fn with_priority_channel<P: Ord + 'static, T: 'static>(
+    queue: std::sync::Arc<std_ext::RwLock<collections::PriorityQueue<P, T>>>,
+    bound: usize,
+) -> (Sender<(P, T), SendError<(P, T)>>, Receiver<(P, T)>) {
+    let (tx, rx) = queue.queue_channel::<_, _, _, _>(
+        move |s, act| match act {
+            Action::Send((p, val)) => {
+                s.write().push(p, val);
+                Reply::Send(())
+            }
+            Action::IsFull => Reply::IsFull(s.read().len() >= bound),
+            Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
+            Action::Len => Reply::Len(s.read().len()),
+        },
+        |s, _| {
+            let mut s = s.write();
+            match s.pop() {
+                Some(m) => Poll::Ready(Some(m)),
+                None => Poll::Pending,
+            }
+        },
+    );
+    (Sender::new(tx), Receiver::new(rx))
+}
+
+///BinaryHeap based channel
+#[cfg(feature = "priority")]
+#[allow(clippy::type_complexity)]
+pub fn priority_channel<P: 'static + Ord, T: 'static>(
+    bound: usize,
+) -> (Sender<(P, T), SendError<(P, T)>>, Receiver<(P, T)>) {
+    use collections::PriorityQueue;
+    use std_ext::{ArcExt, RwLockExt};
+    let queue = PriorityQueue::default().rwlock().arc();
+    with_priority_channel(queue, bound)
+}
+
 ///SegQueue based channel
 #[cfg(feature = "segqueue")]
 pub fn with_segqueue_channel<T: 'static>(
@@ -31,7 +71,6 @@ pub fn with_segqueue_channel<T: 'static>(
 }
 
 ///SegQueue based channel
-
 #[cfg(feature = "segqueue")]
 pub fn segqueue_channel<T: 'static>(bound: usize) -> (Sender<T, SendError<T>>, Receiver<T>) {
     use crossbeam_queue::SegQueue;
@@ -77,6 +116,7 @@ pub fn vecdeque_channel<T: 'static>(bound: usize) -> (Sender<T, SendError<T>>, R
 
 ///Indexmap based channel, remove entry if it already exists
 #[cfg(feature = "indexmap")]
+#[allow(clippy::type_complexity)]
 pub fn with_indexmap_channel<K, T>(
     indexmap: std::sync::Arc<std_ext::RwLock<indexmap::IndexMap<K, T>>>,
     bound: usize,
@@ -110,6 +150,7 @@ where
 
 ///Indexmap based channel, remove entry if it already exists
 #[cfg(feature = "indexmap")]
+#[allow(clippy::type_complexity)]
 pub fn indexmap_channel<K, T>(bound: usize) -> (Sender<(K, T), SendError<(K, T)>>, Receiver<(K, T)>)
 where
     K: Eq + std::hash::Hash + 'static,
