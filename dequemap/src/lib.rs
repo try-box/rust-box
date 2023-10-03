@@ -37,15 +37,9 @@ extern crate alloc;
 #[cfg(feature = "btreemap")]
 pub mod btreemap;
 #[cfg(feature = "btreemap")]
-pub use btreemap::DequeMap;
+pub use btreemap::DequeBTreeMap;
 
 #[cfg(feature = "hashmap")]
 pub mod hashmap;
 #[cfg(feature = "hashmap")]
-pub use hashmap::DequeMap;
-
-#[cfg(feature = "serde")]
-mod serde;
-
-#[cfg(all(feature = "btreemap", feature = "hashmap"))]
-compile_error!("Feature \"btreemap\" and \"hashmap\" cannot be enabled at the same time");
+pub use hashmap::DequeHashMap;

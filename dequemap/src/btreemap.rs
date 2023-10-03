@@ -14,57 +14,57 @@ use core::ops::{Index, IndexMut};
 
 ///Double-ended queue with Map feature.
 ///
-///DequeMap is a data structure that combines the functionality of a double-ended queue
+///DequeBTreeMap is a data structure that combines the functionality of a double-ended queue
 ///(Deque) and a map. It allows you to insert and remove key-value pairs from either end of
 ///the queue in a constant time, and provides map-like access to the values by their keys.
 ///
-///The implementation of DequeMap uses a BTreeMap to store the entries, and a VecDeque to
-///store the indices in the order they were added to the map. This allows DequeMap to
+///The implementation of DequeBTreeMap uses a BTreeMap to store the entries, and a VecDeque to
+///store the indices in the order they were added to the map. This allows DequeBTreeMap to
 ///provide efficient O(log n) insertion, removal, and access operations. It also implements
 ///many common traits, such as Default, PartialEq, PartialOrd, Clone, and Debug.
 ///
-///DequeMap provides several methods for inserting and removing key-value pairs. The
+///DequeBTreeMap provides several methods for inserting and removing key-value pairs. The
 ///insert() method inserts a key-value pair into the map, and returns the old value if the
 ///key was already present. The push_back() and push_front() methods insert a key-value pair
 ///at the back or front of the queue, respectively, and return the old value if the key was
 ///already present.
 ///
-///DequeMap also provides the entry() method, which returns an Entry enum that represents
+///DequeBTreeMap also provides the entry() method, which returns an Entry enum that represents
 ///either a vacant or occupied entry in the map. This can be used to insert or update values
 ///in the map while also managing the indices in the queue.
 ///
-///In addition, DequeMap provides methods for accessing and iterating over the entries in
+///In addition, DequeBTreeMap provides methods for accessing and iterating over the entries in
 ///the map. The get() and get_mut() methods allow you to retrieve a reference to the value
 ///associated with a key, and the iter() and into_iter() methods return iterators over the
-///entries in the map. DequeMap also implements the Index and IndexMut traits, which allow
+///entries in the map. DequeBTreeMap also implements the Index and IndexMut traits, which allow
 ///you to access and modify the values in the map using index syntax (e.g., map[key]).
 ///
-///Overall, DequeMap is a useful data structure for situations where you need to maintain
+///Overall, DequeBTreeMap is a useful data structure for situations where you need to maintain
 ///the insertion order of the entries while also providing efficient access to the values by
 ///their keys.
 ///
-///One potential limitation of DequeMap is that it is not optimized for processing large
+///One potential limitation of DequeBTreeMap is that it is not optimized for processing large
 ///batches of data with many duplicates. This is because the insert() method has a
 ///worst-case time complexity of O(n), where n is the number of entries in the map. This
 ///means that if you try to insert a large number of duplicate keys into the map, the
 ///performance may degrade significantly.
 ///
-///Additionally, DequeMap uses a BTreeMap internally, which means that the keys must
+///Additionally, DequeBTreeMap uses a BTreeMap internally, which means that the keys must
 ///implement the Ord trait. This means that the keys must have a total order and must be
 ///comparable using the <, >, <=, and >= operators. This may not always be desirable,
-///depending on the types of keys you need to use with DequeMap.
+///depending on the types of keys you need to use with DequeBTreeMap.
 ///
-///Overall, while DequeMap is a useful data structure in many cases, it is important to
+///Overall, while DequeBTreeMap is a useful data structure in many cases, it is important to
 ///consider its performance and limitations when deciding whether to use it in your own code.
 ///
 /// When the element is present, the maximum time complexity is O(n). So it is not suitable for
 /// processing large batches of data with too many duplicates.
 ///
-/// Here are some examples of using DequeMap in Rust code:
+/// Here are some examples of using DequeBTreeMap in Rust code:
 ///
 ///```
-///// Create a new, empty DequeMap
-///let mut map: DequeMap<String, i32> = DequeMap::new();
+///// Create a new, empty DequeBTreeMap
+///let mut map: DequeBTreeMap<String, i32> = DequeBTreeMap::new();
 ///
 ///// Insert a key-value pair at the back of the queue
 ///map.push_back("foo".to_string(), 42);
@@ -87,12 +87,12 @@ use core::ops::{Index, IndexMut};
 ///The above content and some comments in the code are written by ChatGPT.
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DequeMap<K, V> {
+pub struct DequeBTreeMap<K, V> {
     entries: BTreeMap<K, V>,
     indices: VecDeque<K>,
 }
 
-impl<K, V> DequeMap<K, V> {
+impl<K, V> DequeBTreeMap<K, V> {
     pub fn new() -> Self {
         Self {
             entries: BTreeMap::new(),
@@ -108,7 +108,7 @@ impl<K, V> DequeMap<K, V> {
     }
 }
 
-impl<K, V> Default for DequeMap<K, V> {
+impl<K, V> Default for DequeBTreeMap<K, V> {
     fn default() -> Self {
         Self {
             entries: BTreeMap::default(),
@@ -117,7 +117,7 @@ impl<K, V> Default for DequeMap<K, V> {
     }
 }
 
-impl<K, V> DequeMap<K, V>
+impl<K, V> DequeBTreeMap<K, V>
 where
     K: Clone + Ord,
 {
@@ -190,7 +190,7 @@ where
     }
 }
 
-impl<K, V> DequeMap<K, V> {
+impl<K, V> DequeBTreeMap<K, V> {
     /// Reserves capacity for at least additional more elements to be inserted in the given VecDeque.
     /// The collection may reserve more space to avoid frequent reallocations.
     pub fn reserve(&mut self, additional: usize) {
@@ -349,7 +349,7 @@ impl<K, V> DequeMap<K, V> {
     }
 }
 
-impl<'a, K, Q, V> Index<&'a Q> for DequeMap<K, V>
+impl<'a, K, Q, V> Index<&'a Q> for DequeBTreeMap<K, V>
 where
     K: Borrow<Q> + Ord,
     Q: Ord,
@@ -361,33 +361,33 @@ where
     }
 }
 
-impl<K: Ord, V> Index<usize> for DequeMap<K, V> {
+impl<K: Ord, V> Index<usize> for DequeBTreeMap<K, V> {
     type Output = V;
 
     fn index(&self, index: usize) -> &Self::Output {
         let key = self
             .indices
             .get(index)
-            .expect("DequeMap: index out of bounds");
+            .expect("DequeBTreeMap: index out of bounds");
         self.entries
             .get(key)
-            .expect("DequeMap: index out of bounds")
+            .expect("DequeBTreeMap: index out of bounds")
     }
 }
 
-impl<K: Ord, V> IndexMut<usize> for DequeMap<K, V> {
+impl<K: Ord, V> IndexMut<usize> for DequeBTreeMap<K, V> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         let key = self
             .indices
             .get(index)
-            .expect("DequeMap: index out of bounds");
+            .expect("DequeBTreeMap: index out of bounds");
         self.entries
             .get_mut(key)
-            .expect("DequeMap: index out of bounds")
+            .expect("DequeBTreeMap: index out of bounds")
     }
 }
 
-impl<K, V> IntoIterator for DequeMap<K, V>
+impl<K, V> IntoIterator for DequeBTreeMap<K, V>
 where
     K: Ord,
 {
@@ -402,7 +402,7 @@ where
     }
 }
 
-impl<'a, K, V> Extend<(&'a K, &'a V)> for DequeMap<K, V>
+impl<'a, K, V> Extend<(&'a K, &'a V)> for DequeBTreeMap<K, V>
 where
     K: Ord + Copy,
     V: Copy,
@@ -411,11 +411,13 @@ where
     where
         T: IntoIterator<Item = (&'a K, &'a V)>,
     {
-        self.extend(iter.into_iter().map(|(key, value)| (*key, *value)))
+        for (k, v) in iter {
+            self.insert(*k, *v);
+        }
     }
 }
 
-impl<K, V> Extend<(K, V)> for DequeMap<K, V>
+impl<K, V> Extend<(K, V)> for DequeBTreeMap<K, V>
 where
     K: Ord + Clone,
 {
@@ -426,7 +428,7 @@ where
     }
 }
 
-impl<K, V> FromIterator<(K, V)> for DequeMap<K, V>
+impl<K, V> FromIterator<(K, V)> for DequeBTreeMap<K, V>
 where
     K: Ord + Clone,
 {
@@ -434,24 +436,24 @@ where
     where
         T: IntoIterator<Item = (K, V)>,
     {
-        let mut map = DequeMap::new();
+        let mut map = DequeBTreeMap::new();
         map.extend(iter);
         map
     }
 }
 
-impl<K, V, const N: usize> From<[(K, V); N]> for DequeMap<K, V>
+impl<K, V, const N: usize> From<[(K, V); N]> for DequeBTreeMap<K, V>
 where
     K: Ord + Clone,
 {
     fn from(items: [(K, V); N]) -> Self {
-        let mut map = DequeMap::new();
+        let mut map = DequeBTreeMap::new();
         map.extend(items);
         map
     }
 }
 
-impl<'a, K: Ord, V> IntoIterator for &'a DequeMap<K, V> {
+impl<'a, K: Ord, V> IntoIterator for &'a DequeBTreeMap<K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 
@@ -555,9 +557,9 @@ impl<K: Ord, V> FusedIterator for IntoIter<K, V> {}
 
 /// A view into a single entry in a map, which may either be vacant or occupied.
 ///
-/// This `enum` is constructed from the [`entry`] method on [`DequeMap`].
+/// This `enum` is constructed from the [`entry`] method on [`DequeBTreeMap`].
 ///
-/// [`entry`]: DequeMap::entry
+/// [`entry`]: DequeBTreeMap::entry
 pub enum Entry<'a, K, V> {
     /// A vacant entry.
     Vacant(VacantEntry<'a, K, V>),
@@ -666,7 +668,7 @@ where
     }
 }
 
-/// A view into a vacant entry in an [`DequeMap`]. It is part of the [`Entry`] `enum`.
+/// A view into a vacant entry in an [`DequeBTreeMap`]. It is part of the [`Entry`] `enum`.
 pub struct VacantEntry<'a, K, V> {
     /// The underlying vacant entry.
     vacant: btree_map::VacantEntry<'a, K, V>,
@@ -710,7 +712,7 @@ where
     }
 }
 
-/// A view into an occupied entry in a [`DequeMap`]. It is part of the [`Entry`] `enum`.
+/// A view into an occupied entry in a [`DequeBTreeMap`]. It is part of the [`Entry`] `enum`.
 pub struct OccupiedEntry<'a, K, V> {
     /// The underlying occupied entry.
     occupied: btree_map::OccupiedEntry<'a, K, V>,
@@ -772,16 +774,110 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
+impl<K, V> serde::ser::Serialize for DequeBTreeMap<K, V>
+where
+    K: serde::ser::Serialize + Ord,
+    V: serde::ser::Serialize,
+{
+    fn serialize<T>(&self, serializer: T) -> Result<T::Ok, T::Error>
+    where
+        T: serde::ser::Serializer,
+    {
+        serializer.collect_map(self)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct DequeBTreeMapVisitor<K, V>(core::marker::PhantomData<(K, V)>);
+
+#[cfg(feature = "serde")]
+impl<'de, K, V> serde::de::Visitor<'de> for DequeBTreeMapVisitor<K, V>
+where
+    K: serde::de::Deserialize<'de> + Ord + Clone,
+    V: serde::de::Deserialize<'de>,
+{
+    type Value = DequeBTreeMap<K, V>;
+
+    fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(formatter, "a map")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut values = DequeBTreeMap::with_capacity(map.size_hint().unwrap_or(0));
+        while let Some((key, value)) = map.next_entry()? {
+            values.insert(key, value);
+        }
+        Ok(values)
+    }
+}
+
+/// Requires crate feature `"serde"`
+#[cfg(feature = "serde")]
+impl<'de, K, V> serde::de::Deserialize<'de> for DequeBTreeMap<K, V>
+where
+    K: serde::de::Deserialize<'de> + Ord + Clone,
+    V: serde::de::Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(DequeBTreeMapVisitor(core::marker::PhantomData))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, K, V, E> serde::de::IntoDeserializer<'de, E> for DequeBTreeMap<K, V>
+where
+    K: serde::de::IntoDeserializer<'de, E> + Ord,
+    V: serde::de::IntoDeserializer<'de, E>,
+    E: serde::de::Error,
+{
+    type Deserializer = serde::de::value::MapDeserializer<'de, <Self as IntoIterator>::IntoIter, E>;
+
+    fn into_deserializer(self) -> Self::Deserializer {
+        serde::de::value::MapDeserializer::new(self.into_iter())
+    }
+}
+
+#[cfg(feature = "serde")]
 #[test]
-fn test_insert() {
+fn test_dequebtreemap_serde() {
     use alloc::vec::Vec;
-    let to_vec = |map: &DequeMap<i32, i32>| {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
         map.iter()
             .map(|t| (*t.0, *t.1))
             .collect::<Vec<(i32, i32)>>()
     };
 
-    let mut map = DequeMap::new();
+    let mut map = DequeBTreeMap::new();
+    map.push_back(2, 20);
+    map.push_back(1, 10);
+    map.push_back(9, 90);
+    map.push_back(3, 30);
+    map.push_back(5, 50);
+
+    assert_eq!(to_vec(&map), [(2, 20), (1, 10), (9, 90), (3, 30), (5, 50)]);
+
+    let data = bincode::serialize(&map).unwrap();
+    let map: DequeBTreeMap<i32, i32> = bincode::deserialize(&data).unwrap();
+    assert_eq!(to_vec(&map), [(2, 20), (1, 10), (9, 90), (3, 30), (5, 50)]);
+}
+
+#[test]
+fn test_insert() {
+    use alloc::vec::Vec;
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<Vec<(i32, i32)>>()
+    };
+
+    let mut map = DequeBTreeMap::new();
     map.insert(2, 20);
     map.insert(1, 10);
     map.insert(9, 90);
@@ -808,13 +904,13 @@ fn test_insert() {
 #[test]
 fn test_entry() {
     use alloc::vec::Vec;
-    let to_vec = |map: &DequeMap<i32, i32>| {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
         map.iter()
             .map(|t| (*t.0, *t.1))
             .collect::<Vec<(i32, i32)>>()
     };
 
-    let mut map = DequeMap::new();
+    let mut map = DequeBTreeMap::new();
     map.entry(2).or_insert(20);
     map.entry(1).or_insert(10);
     map.entry(9).or_insert(90);
@@ -845,13 +941,13 @@ fn test_entry() {
 #[test]
 fn test_dequemap() {
     use alloc::vec::Vec;
-    let to_vec = |map: &DequeMap<i32, i32>| {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
         map.iter()
             .map(|t| (*t.0, *t.1))
             .collect::<Vec<(i32, i32)>>()
     };
 
-    let mut map = DequeMap::new();
+    let mut map = DequeBTreeMap::new();
     map.push_back(2, 20);
     map.push_back(1, 10);
     map.push_back(9, 90);
@@ -870,7 +966,7 @@ fn test_dequemap() {
     assert_eq!(to_vec(&map), [(1, 10), (9, 90), (3, 30)]);
     assert_eq!(map.entries.len(), map.indices.len());
 
-    let mut map1: DequeMap<i32, i32> = DequeMap::new();
+    let mut map1: DequeBTreeMap<i32, i32> = DequeBTreeMap::new();
     map1.push_back(7, 70);
     map1.push_back(9, 900);
     map.extend(map1);
@@ -890,7 +986,7 @@ fn test_dequemap() {
 
 #[test]
 fn test_dequemap_index() {
-    let mut map = DequeMap::new();
+    let mut map = DequeBTreeMap::new();
     map.push_back(2, 20);
     map.push_back(1, 10);
     map.push_back(9, 90);
@@ -901,12 +997,12 @@ fn test_dequemap_index() {
 #[test]
 fn test_dequemap_extend() {
     use alloc::vec::Vec;
-    let to_vec = |map: &DequeMap<i32, i32>| {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
         map.iter()
             .map(|t| (*t.0, *t.1))
             .collect::<Vec<(i32, i32)>>()
     };
-    let mut map = DequeMap::new();
+    let mut map = DequeBTreeMap::new();
     map.push_back(2, 20);
     map.push_back(1, 10);
     map.push_back(9, 90);
