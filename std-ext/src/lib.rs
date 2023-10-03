@@ -1,11 +1,37 @@
 use core::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU64, AtomicUsize};
-pub use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
 pub use map::{CacheMapExt, EntryExt, TimedValue};
+pub use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use wrapper::{HashExt, OrdExt, OrdHashExt};
 
-pub mod async_std;
+pub mod async_lock;
 pub mod map;
+pub mod wrapper;
+
+#[macro_export]
+macro_rules! tuple_deref {
+    ($Name:ty) => {
+        impl<T> std::ops::Deref for $Name {
+            type Target = T;
+            #[inline]
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! tuple_deref_mut {
+    ($Name:ty) => {
+        impl<T> std::ops::DerefMut for $Name {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    };
+}
 
 impl<T: ?Sized> ArcExt for T {}
 
