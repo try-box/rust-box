@@ -47,7 +47,7 @@ fn test_atomic() {
 }
 
 fn test_async_rwlock() {
-    use rust_box::std_ext::async_std::RwLockExt;
+    use rust_box::std_ext::async_lock::RwLockExt;
     let runner = async move {
         let a = 1.rwlock().arc();
         assert_eq!(*a.read().await, 1);
@@ -58,7 +58,7 @@ fn test_async_rwlock() {
 }
 
 fn test_async_mutex() {
-    use rust_box::std_ext::async_std::MutexExt;
+    use rust_box::std_ext::async_lock::MutexExt;
     let runner = async move {
         let m = 1.mutex().arc();
         assert_eq!(*m.lock().await, 1);

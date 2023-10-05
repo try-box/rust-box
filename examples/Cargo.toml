@@ -1,6 +1,6 @@
 [package]
 name = "examples"
-version = "0.7.0"
+version = "0.9.0"
 edition = "2021"
 
 [[bin]]
@@ -37,16 +37,15 @@ rust-box = { path = "../", features = ["full"] }
 futures = "0.3"
 futures-lite = "1.12"
 futures-util = "0.3"
-linked-hash-map = "0.5"
 indexmap = { version = "1.9", features = ["std"] }
-fxhash = "0.2.1"
 log = "0.4"
 env_logger = "0.8.4"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 leaky-bucket = "0.12"
-governor = "0.5"
+governor = "0.6"
 nonzero_ext = { version = "0.3.0", default-features = false }
+rand = "0.8.4"
 
 async-std = { version = "1.12", features = ["attributes", "unstable"] }
 tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }

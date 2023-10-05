@@ -3,8 +3,8 @@
 use futures::{stream, AsyncWriteExt, FutureExt, Sink, SinkExt, StreamExt};
 //use rust_box::mpsc::channel::{ChildReceiver, ChildSender};
 use rust_box::mpsc::{
-    indexmap_channel, segqueue_channel, vecdeque_channel, with_segqueue_channel, Receiver,
-    SendError, Sender,
+    indexmap_channel, priority_channel, segqueue_channel, vecdeque_channel, with_segqueue_channel,
+    Receiver, SendError, Sender,
 };
 use std::time::Duration;
 use tokio::task::spawn;
@@ -22,6 +22,8 @@ fn main() {
         test_indexmap_channel().await;
         test_with_segqueue_channel().await;
         test_channel_tx_rx().await;
+        test_priority_channel().await;
+        test_priority_channel_drop().await;
     };
     // async_std::task::block_on(runner);
     tokio::runtime::Runtime::new().unwrap().block_on(runner);
@@ -76,6 +78,62 @@ async fn test_channel() {
             "test channel: {:?}, len: {}, count: {}",
             item,
             0, //s.read().len(),
+            count
+        );
+    }
+}
+
+async fn test_priority_channel_drop() {
+    {
+        let (mut tx, mut rx) = priority_channel::<i32, i32>(3);
+        let mut tx1 = tx.clone();
+        let mut tx2 = tx.clone();
+        spawn(async move {
+            for i in 0..10 {
+                log::info!("send start ... {}", i);
+                let res = tx1.send((i % 10, i * 2)).await;
+                log::info!("send end ... {}, res: {:?}", i, res);
+                sleep(Duration::from_millis(1)).await;
+            }
+            //tx1.close().await;
+        });
+        sleep(Duration::from_secs(1)).await;
+    }
+    sleep(Duration::from_secs(4)).await;
+}
+
+async fn test_priority_channel() {
+    let (mut tx, mut rx) = priority_channel::<i32, i32>(100);
+
+    let mut tx1 = tx.clone();
+    let mut tx2 = tx.clone();
+
+    spawn(async move {
+        for i in 0..100 {
+            tx1.send((i % 10, i * 2)).await.unwrap();
+            sleep(Duration::from_millis(1)).await;
+        }
+        tx1.close().await;
+    });
+
+    spawn(async move {
+        for i in 100..200 {
+            tx2.send((i % 10, i * 2)).await.unwrap();
+            sleep(Duration::from_millis(2)).await;
+        }
+        tx2.close().await;
+    });
+
+    drop(tx);
+
+    let mut count = 0;
+    while let Some(item) = rx.next().await {
+        count += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        log::info!(
+            "test priority_channel: {:?}, len: {}, count: {}",
+            item,
+            0,
             count
         );
     }
