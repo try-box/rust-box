@@ -4,13 +4,13 @@ use std::marker::PhantomData;
 use std::marker::Unpin;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use futures::Stream;
 use futures::task::AtomicWaker;
+use futures::Stream;
 use pin_project_lite::pin_project;
 
 use super::Waker;
@@ -34,9 +34,9 @@ unsafe impl<Q, Item, F> Sync for QueueStream<Q, Item, F> {}
 unsafe impl<Q, Item, F> Send for QueueStream<Q, Item, F> {}
 
 impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
-    where
-        Q: Clone,
-        F: Clone,
+where
+    Q: Clone,
+    F: Clone,
 {
     #[inline]
     fn clone(&self) -> Self {
@@ -52,8 +52,8 @@ impl<Q, Item, F> Clone for QueueStream<Q, Item, F>
 }
 
 impl<Q, Item, F> fmt::Debug for QueueStream<Q, Item, F>
-    where
-        Q: fmt::Debug,
+where
+    Q: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("QueueStream")
@@ -94,15 +94,25 @@ impl<Q, Item, F> Waker for QueueStream<Q, Item, F> {
 
     #[inline]
     fn close_channel(&self) {
-        self.closed.store(true, Ordering::SeqCst);
-        self.rx_wake();
+        if !self.closed.load(Ordering::SeqCst) {
+            self.closed.store(true, Ordering::SeqCst);
+            self.rx_wake();
+            if let Some(w) = self.parked_queue.lock().unwrap().pop_front() {
+                w.wake();
+            }
+        }
+    }
+
+    #[inline]
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 }
 
 impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
-    where
-        Q: Unpin,
-        F: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>>,
+where
+    Q: Unpin,
+    F: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>>,
 {
     type Item = Item;
 
@@ -119,7 +129,7 @@ impl<Q, Item, F> Stream for QueueStream<Q, Item, F>
             Poll::Pending => {
                 if this.closed.load(Ordering::SeqCst) {
                     Poll::Ready(None)
-                }else {
+                } else {
                     this.recv_task.register(ctx.waker());
                     f(this.q.as_mut(), ctx)
                 }

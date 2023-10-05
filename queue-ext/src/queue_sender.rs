@@ -1,13 +1,12 @@
 use std::fmt;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 
 use futures::Sink;
 use pin_project::{pin_project, pinned_drop};
-
 
 use super::{Action, Reply, SendError, TrySendError, Waker};
 
@@ -17,7 +16,6 @@ pub struct QueueSender<S: Waker, Item, F, R> {
     s: S,
     #[pin]
     f: F,
-    closed: AtomicBool,
     num_senders: Arc<AtomicUsize>,
     _item: PhantomData<Item>,
     _r: PhantomData<R>,
@@ -28,19 +26,18 @@ unsafe impl<S: Waker, Item, F, R> Sync for QueueSender<S, Item, F, R> {}
 unsafe impl<S: Waker, Item, F, R> Send for QueueSender<S, Item, F, R> {}
 
 impl<S, Item, F, R> Clone for QueueSender<S, Item, F, R>
-    where
-        S: Clone + Waker,
-        F: Clone,
+where
+    S: Clone + Waker,
+    F: Clone,
 {
     #[inline]
     fn clone(&self) -> Self {
-        if !self.closed.load(Ordering::SeqCst) {
-            self.num_senders.fetch_add(1, Ordering::SeqCst);
-        }
+        //if !self.s.is_closed() {
+        self.num_senders.fetch_add(1, Ordering::SeqCst);
+        //}
         Self {
             s: self.s.clone(),
             f: self.f.clone(),
-            closed: AtomicBool::new(false),
             num_senders: self.num_senders.clone(),
             _item: PhantomData,
             _r: PhantomData,
@@ -49,18 +46,15 @@ impl<S, Item, F, R> Clone for QueueSender<S, Item, F, R>
 }
 
 #[pinned_drop]
-impl<S: Waker, Item, F, R> PinnedDrop for QueueSender<S, Item, F, R>
-{
+impl<S: Waker, Item, F, R> PinnedDrop for QueueSender<S, Item, F, R> {
     fn drop(self: Pin<&mut Self>) {
-        if !self.is_closed() {
-            self.set_closed();
-        }
+        self.set_closed();
     }
 }
 
 impl<S, Item, F, R> fmt::Debug for QueueSender<S, Item, F, R>
-    where
-        S: fmt::Debug + Waker,
+where
+    S: fmt::Debug + Waker,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("QueueSender")
@@ -69,19 +63,12 @@ impl<S, Item, F, R> fmt::Debug for QueueSender<S, Item, F, R>
     }
 }
 
-
 impl<S, Item, F, R> QueueSender<S, Item, F, R>
-    where
-        S: Waker,
+where
+    S: Waker,
 {
     #[inline]
-    fn is_closed(&self) -> bool {
-        self.closed.load(Ordering::SeqCst)
-    }
-
-    #[inline]
     fn set_closed(&self) -> usize {
-        self.closed.store(true, Ordering::SeqCst);
         let prev = self.num_senders.fetch_sub(1, Ordering::SeqCst);
         if prev == 1 {
             self.s.close_channel();
@@ -91,16 +78,15 @@ impl<S, Item, F, R> QueueSender<S, Item, F, R>
 }
 
 impl<S, Item, F, R> QueueSender<S, Item, F, R>
-    where
-        S: Waker,
-        F: Fn(&mut S, Action<Item>) -> Reply<R>,
+where
+    S: Waker,
+    F: Fn(&mut S, Action<Item>) -> Reply<R>,
 {
     #[inline]
     pub(super) fn new(s: S, f: F) -> Self {
         Self {
             s,
             f,
-            closed: AtomicBool::new(false),
             num_senders: Arc::new(AtomicUsize::new(1)),
             _item: PhantomData,
             _r: PhantomData,
@@ -109,11 +95,11 @@ impl<S, Item, F, R> QueueSender<S, Item, F, R>
 
     #[inline]
     pub fn try_send(&mut self, item: Item) -> Result<R, TrySendError<Item>> {
-        if self.is_closed() {
-            return Err(SendError::disconnected(Some(item)))
+        if self.s.is_closed() {
+            return Err(SendError::disconnected(Some(item)));
         }
         if self.is_full() {
-            return Err(TrySendError::full(item))
+            return Err(TrySendError::full(item));
         }
         let res = (self.f)(&mut self.s, Action::Send(item));
         self.s.rx_wake();
@@ -147,19 +133,18 @@ impl<S, Item, F, R> QueueSender<S, Item, F, R>
             _ => unreachable!(),
         }
     }
-
 }
 
 impl<S, Item, F, R> Sink<Item> for QueueSender<S, Item, F, R>
-    where
-        S: Waker + Unpin,
-        F: Fn(&mut S, Action<Item>) -> Reply<R>,
+where
+    S: Waker + Unpin,
+    F: Fn(&mut S, Action<Item>) -> Reply<R>,
 {
     type Error = SendError<Item>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.is_closed() {
-            return Poll::Ready(Err(SendError::disconnected(None)))
+        if self.s.is_closed() {
+            return Poll::Ready(Err(SendError::disconnected(None)));
         }
         let mut this = self.project();
         match (this.f)(&mut this.s, Action::IsFull) {
@@ -173,7 +158,7 @@ impl<S, Item, F, R> Sink<Item> for QueueSender<S, Item, F, R>
     }
 
     fn start_send(self: Pin<&mut Self>, item: Item) -> Result<(), Self::Error> {
-        if self.is_closed() {
+        if self.s.is_closed() {
             return Err(SendError::disconnected(Some(item)));
         }
         let mut this = self.project();
@@ -183,22 +168,23 @@ impl<S, Item, F, R> Sink<Item> for QueueSender<S, Item, F, R>
     }
 
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.s.is_closed() {
+            return Poll::Ready(Err(SendError::disconnected(None)));
+        }
         Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.is_closed() {
-            return Poll::Ready(Err(SendError::disconnected(None)))
+        if self.s.is_closed() {
+            return Poll::Ready(Err(SendError::disconnected(None)));
         }
         if self.set_closed() > 1 {
-            return Poll::Ready(Ok(()))
+            return Poll::Ready(Ok(()));
         }
 
         let mut this = self.project();
         match (this.f)(&mut this.s, Action::IsEmpty) {
-            Reply::IsEmpty(true) => {
-                Poll::Ready(Ok(()))
-            },
+            Reply::IsEmpty(true) => Poll::Ready(Ok(())),
             Reply::IsEmpty(false) => {
                 this.s.tx_park(cx.waker().clone());
                 Poll::Pending

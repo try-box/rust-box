@@ -17,6 +17,7 @@ pub trait Waker {
     fn rx_wake(&self);
     fn tx_park(&self, w: std::task::Waker);
     fn close_channel(&self);
+    fn is_closed(&self) -> bool;
 }
 
 impl<T: ?Sized> QueueExt for T {}
@@ -24,18 +25,18 @@ impl<T: ?Sized> QueueExt for T {}
 pub trait QueueExt {
     #[inline]
     fn queue_stream<Item, F>(self, f: F) -> QueueStream<Self, Item, F>
-        where
-            Self: Sized + Unpin,
-            F: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>>,
+    where
+        Self: Sized + Unpin,
+        F: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>>,
     {
         assert_stream::<Item, _>(QueueStream::new(self, f))
     }
 
     #[inline]
     fn queue_sender<Item, F, R>(self, f: F) -> QueueSender<Self, Item, F, R>
-        where
-            Self: Sized + Waker,
-            F: Fn(&mut Self, Action<Item>) -> Reply<R>,
+    where
+        Self: Sized + Waker,
+        F: Fn(&mut Self, Action<Item>) -> Reply<R>,
     {
         QueueSender::new(self, f)
     }
@@ -50,10 +51,10 @@ pub trait QueueExt {
         QueueSender<QueueStream<Self, Item, F2>, Item, F1, R>,
         QueueStream<Self, Item, F2>,
     )
-        where
-            Self: Sized + Unpin + Clone,
-            F1: Fn(&mut QueueStream<Self, Item, F2>, Action<Item>) -> Reply<R>,
-            F2: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
+    where
+        Self: Sized + Unpin + Clone,
+        F1: Fn(&mut QueueStream<Self, Item, F2>, Action<Item>) -> Reply<R>,
+        F2: Fn(Pin<&mut Self>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
     {
         queue_channel(self, f1, f2)
     }
@@ -69,10 +70,10 @@ pub fn queue_channel<Q, Item, F1, R, F2>(
     QueueSender<QueueStream<Q, Item, F2>, Item, F1, R>,
     QueueStream<Q, Item, F2>,
 )
-    where
-        Q: Sized + Unpin + Clone,
-        F1: Fn(&mut QueueStream<Q, Item, F2>, Action<Item>) -> Reply<R>,
-        F2: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
+where
+    Q: Sized + Unpin + Clone,
+    F1: Fn(&mut QueueStream<Q, Item, F2>, Action<Item>) -> Reply<R>,
+    F2: Fn(Pin<&mut Q>, &mut Context<'_>) -> Poll<Option<Item>> + Clone + Unpin,
 {
     let rx = QueueStream::new(q, f2);
     let tx = QueueSender::new(rx.clone(), f1);
@@ -170,8 +171,8 @@ impl<T> SendError<T> {
 // right implementations.
 #[inline]
 pub(crate) fn assert_stream<T, S>(stream: S) -> S
-    where
-        S: Stream<Item=T>,
+where
+    S: Stream<Item = T>,
 {
     stream
 }
