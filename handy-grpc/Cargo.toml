@@ -1,0 +1,33 @@
+[package]
+name = "handy-grpc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+rate = ["update_rate"]
+rate_print = ["rate"]
+
+[dependencies]
+mpsc = { version = "0.2", path = "../mpsc", default-features = false, features = ["priority"] }
+collections = { version = "0.1", path = "../collections" , default-features = false, features = ["priority-queue"] }
+tokio = { version = "1", default-features = false, features = ["time"] }
+tonic = { version = "0.9", features = ["tls"] }
+prost = "0.11"
+serde = { version = "1", features = ["derive"] }
+futures = "0.3"
+log = "0.4"
+anyhow = "1"
+update_rate = { version = "2", optional = true }
+once_cell = "1"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["net", "rt-multi-thread", "sync"] }
+env_logger = "0.8"
+
+[build-dependencies]
+tonic-build = { version = "0.9", features = ["prost"] }
+

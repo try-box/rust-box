@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package transferpb;
+
+service DataTransfer {
+  rpc Transfer(stream Message) returns (Empty) {}
+  rpc Send(Message) returns (Message) {}
+}
+
+message Message {
+  int32 ver = 1;
+  bytes data = 2;
+}
+
+message Empty {
+}
