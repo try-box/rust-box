@@ -1,10 +1,12 @@
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use queue_ext::{Action, QueueExt, Reply};
+
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub use queue_ext::SendError;
+#[allow(unused_imports)]
+use queue_ext::{Action, QueueExt, Reply, Waker};
 
 ///BinaryHeap based channel
 #[cfg(feature = "priority")]
@@ -31,6 +33,7 @@ pub fn with_priority_channel<P: Ord + 'static, T: 'static>(
             }
         },
     );
+
     (Sender::new(tx), Receiver::new(rx))
 }
 
@@ -241,19 +244,28 @@ impl<M, E> futures::Sink<M> for Sender<M, E> {
     }
 }
 
-pub trait ReceiverStream<M>: futures::Stream<Item = M> + Send + Unpin {}
+pub trait ReceiverStream<M>: futures::Stream<Item = M> + Send + Unpin + Waker {}
 
-impl<T, M> ReceiverStream<M> for T where T: futures::Stream<Item = M> + Send + Unpin + 'static {}
+impl<T, M> ReceiverStream<M> for T where
+    T: futures::Stream<Item = M> + Send + Unpin + Waker + 'static
+{
+}
 
 pub struct Receiver<M> {
     rx: Box<dyn ReceiverStream<M>>,
+}
+
+impl<M> Drop for Receiver<M> {
+    fn drop(&mut self) {
+        self.rx.close_channel();
+    }
 }
 
 impl<M> Receiver<M> {
     #[inline]
     pub fn new<T>(tx: T) -> Self
     where
-        T: futures::Stream<Item = M> + Send + Unpin + 'static,
+        T: futures::Stream<Item = M> + Send + Unpin + Waker + 'static,
     {
         Receiver { rx: Box::new(tx) }
     }
