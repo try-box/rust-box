@@ -25,3 +25,11 @@ pub use mpsc;
 #[doc(inline)]
 #[cfg(feature = "dequemap")]
 pub use dequemap;
+
+#[doc(inline)]
+#[cfg(feature = "handy-grpc")]
+pub use handy_grpc;
+
+#[doc(inline)]
+#[cfg(feature = "collections")]
+pub use collections;

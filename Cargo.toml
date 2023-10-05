@@ -1,41 +1,53 @@
 [package]
 name = "rust-box"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["try <trywen@qq.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box"
 homepage = "https://github.com/try-box/rust-box"
 description = "This crate provides an odd set of tools for Rust programming"
-keywords = ["stream", "sink", "task", "queue", "event"]
+keywords = ["stream", "sink", "task", "event", "collections"]
 exclude = ["examples"]
 
 
 [features]
 default = []
 full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "mpsc", "dequemap", "stream-ext-leaky-bucket",
-    "stream-ext-governor", "task-exec-queue-rate", "mpsc-segqueue", "mpsc-vecdeque", "mpsc-indexmap", "dequemap-std",
-    "dequemap-serde", "dequemap-btreemap"]
+    "stream-ext-governor", "task-exec-queue-rate", "mpsc-segqueue", "mpsc-vecdeque", "mpsc-indexmap", "mpsc-priority",
+    "dequemap-std", "dequemap-serde", "dequemap-btreemap", "handy-grpc", "collections", "collections-std", "collections-serde",
+    "collections-binary-heap", "collections-priority-queue"]
+
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
 task-exec-queue-rate = ["task-exec-queue/rate"]
 event = ["event-notify"]
+
 mpsc-segqueue = ["mpsc/segqueue"]
 mpsc-vecdeque = ["mpsc/vecdeque"]
 mpsc-indexmap = ["mpsc/indexmap"]
+mpsc-priority = ["mpsc/priority"]
+
 dequemap-std = ["dequemap/std"]
 dequemap-serde = ["dequemap/serde"]
 dequemap-btreemap = ["dequemap/btreemap"]
 dequemap-hashmap = ["dequemap/hashmap"]
 
+collections-std = ["collections/std"]
+collections-serde = ["collections/serde"]
+collections-binary-heap = ["collections/binary-heap"]
+collections-priority-queue = ["collections/priority-queue"]
+
 [dependencies]
 queue-ext = { version = "0.4.0", path = "./queue-ext", optional = true }
-stream-ext = { version = "0.2.2", path = "./stream-ext", optional = true }
-task-exec-queue = { version = "0.6.0", path = "./task-exec-queue", optional = true }
+stream-ext = { version = "0.2.3", path = "./stream-ext", optional = true }
+task-exec-queue = { version = "0.7.0", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
-std-ext = { version = "0.1.3", path = "./std-ext", optional = true }
-mpsc = { version = "0.2.0", path = "./mpsc", optional = true }
-dequemap = { version = "0.1.3", path = "./dequemap", optional = true }
+std-ext = { version = "0.2.0", path = "./std-ext", optional = true }
+mpsc = { version = "0.2.1", path = "./mpsc", optional = true }
+dequemap = { version = "0.2.0", path = "./dequemap", optional = true }
+handy-grpc = { version = "0.1.0", path = "./handy-grpc", optional = true }
+collections = { version = "0.1.0", path = "./collections", optional = true }
 
 [workspace]
 members = [
@@ -46,7 +58,9 @@ members = [
     "event",
     "std-ext",
     "mpsc",
-    "dequemap"
+    "dequemap",
+    "handy-grpc",
+    "collections"
 ]
 
 [patch.crates-io]
@@ -57,3 +71,6 @@ event-notify = { path = "event" }
 std-ext = { path = "std-ext" }
 mpsc = { path = "mpsc" }
 dequemap = { path = "dequemap" }
+handy-grpc = { path = "handy-grpc" }
+collections = { path = "collections" }
+
