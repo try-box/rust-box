@@ -36,7 +36,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-box = "0.6"
+rust-box = "0.9"
 ```
 
 ## Examples
