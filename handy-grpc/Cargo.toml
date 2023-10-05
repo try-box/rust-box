@@ -2,6 +2,14 @@
 name = "handy-grpc"
 version = "0.1.0"
 edition = "2021"
+authors = ["try <trywen@qq.com>"]
+rust-version = "1.47"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/handy-grpc"
+homepage = "https://github.com/try-box/rust-box/tree/main/handy-grpc"
+description = "Handy gRPC"
+keywords = ["rpc", "grpc", "tonic"]
+categories = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

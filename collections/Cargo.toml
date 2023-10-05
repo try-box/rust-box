@@ -5,9 +5,9 @@ authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.47"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/try-box/rust-box/tree/main/queue"
-homepage = "https://github.com/try-box/rust-box/tree/main/queue"
-description = "A no_std compatible implementation of the queue crate"
+repository = "https://github.com/try-box/rust-box/tree/main/collections"
+homepage = "https://github.com/try-box/rust-box/tree/main/collections"
+description = "A no_std compatible implementation of the collection crate"
 keywords = ["collections", "no_std"]
 categories = ["data-structures", "no-std"]
 
