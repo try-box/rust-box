@@ -12,7 +12,7 @@ rate_print = ["rate"]
 
 [dependencies]
 mpsc = { version = "0.2", path = "../mpsc", default-features = false, features = ["priority"] }
-collections = { version = "0.1", path = "../collections" , default-features = false, features = ["priority-queue"] }
+collections = { package = "box-collections", version = "0.1", path = "../collections" , default-features = false, features = ["priority-queue"] }
 tokio = { version = "1", default-features = false, features = ["time"] }
 tonic = { version = "0.9", features = ["tls"] }
 prost = "0.11"

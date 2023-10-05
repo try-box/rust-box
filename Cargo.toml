@@ -47,7 +47,7 @@ std-ext = { version = "0.2.0", path = "./std-ext", optional = true }
 mpsc = { version = "0.2.1", path = "./mpsc", optional = true }
 dequemap = { version = "0.2.0", path = "./dequemap", optional = true }
 handy-grpc = { version = "0.1.0", path = "./handy-grpc", optional = true }
-collections = { version = "0.1.0", path = "./collections", optional = true }
+collections = { package = "box-collections", version = "0.1.0", path = "./collections", optional = true }
 
 [workspace]
 members = [
@@ -72,5 +72,5 @@ std-ext = { path = "std-ext" }
 mpsc = { path = "mpsc" }
 dequemap = { path = "dequemap" }
 handy-grpc = { path = "handy-grpc" }
-collections = { path = "collections" }
+collections = {package = "box-collections", path = "collections" }
 

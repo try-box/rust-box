@@ -28,7 +28,7 @@ log = "0.4"
 
 crossbeam-queue = { version = "0.3", optional = true }
 indexmap = { version = "1.9", features = ["std"], optional = true }
-collections = { version = "0.1", path = "../collections", features = ["std", "priority-queue"], optional = true }
+collections = { package = "box-collections", version = "0.1", path = "../collections", features = ["std", "priority-queue"], optional = true }
 
 
 
