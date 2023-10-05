@@ -39,7 +39,7 @@ collections-binary-heap = ["collections/binary-heap"]
 collections-priority-queue = ["collections/priority-queue"]
 
 [dependencies]
-queue-ext = { version = "0.4.0", path = "./queue-ext", optional = true }
+queue-ext = { version = "0.4.1", path = "./queue-ext", optional = true }
 stream-ext = { version = "0.2.3", path = "./stream-ext", optional = true }
 task-exec-queue = { version = "0.7.0", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
