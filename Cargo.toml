@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.9.1"
+version = "0.9.2"
 authors = ["try <trywen@qq.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -44,7 +44,7 @@ stream-ext = { version = "0.2.3", path = "./stream-ext", optional = true }
 task-exec-queue = { version = "0.7.0", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
 std-ext = { version = "0.2.0", path = "./std-ext", optional = true }
-mpsc = { version = "0.2.2", path = "./mpsc", optional = true }
+mpsc = { version = "0.2.3", path = "./mpsc", optional = true }
 dequemap = { version = "0.2.0", path = "./dequemap", optional = true }
 handy-grpc = { version = "0.1.1", path = "./handy-grpc", optional = true }
 collections = { package = "box-collections", version = "0.1.0", path = "./collections", optional = true }
