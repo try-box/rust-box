@@ -274,6 +274,11 @@ impl<M> Receiver<M> {
     pub async fn recv(&mut self) -> Option<M> {
         self.rx.next().await
     }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.rx.is_closed()
+    }
 }
 
 impl<M> Deref for Receiver<M> {
