@@ -171,7 +171,12 @@ impl Client {
                     continue;
                 }
 
-                log::info!("transfer replay ...");
+                log::info!(
+                    "transfer is exit, addr: {:?}, is_closed: {}",
+                    this.builder.addr,
+                    rx.is_closed()
+                );
+                break;
             }
         });
         mailbox
@@ -333,6 +338,11 @@ impl Receiver {
         Receiver {
             rx: Arc::new(RwLock::new(rx)),
         }
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.rx.read().is_closed()
     }
 }
 
