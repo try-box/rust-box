@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 #[cfg(feature = "rate")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use futures::channel::{mpsc, oneshot};
-use futures::{SinkExt, StreamExt};
+use futures::channel::oneshot;
+use futures::StreamExt;
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
@@ -14,15 +14,15 @@ use anyhow::{Error, Result};
 
 use super::transferpb::data_transfer_server::{DataTransfer, DataTransferServer};
 use super::transferpb::{self, Empty};
+use super::Priority;
 
-type TX = mpsc::Sender<Message>;
+type TX = mpsc::Sender<(Priority, Message), mpsc::SendError<(Priority, Message)>>;
 
 pub type Message = (
     transferpb::Message,
     Option<oneshot::Sender<Result<transferpb::Message>>>,
 );
 
-#[derive(Debug)]
 pub struct DataTransferService {
     #[cfg(feature = "rate")]
     counter: std::sync::Arc<AtomicUsize>,
@@ -74,7 +74,7 @@ impl DataTransfer for DataTransferService {
             let req = req?;
             #[cfg(feature = "rate")]
             self.counter.fetch_add(1, Ordering::SeqCst);
-            tx.send((req, None))
+            tx.send((req.priority as Priority, (req, None)))
                 .await
                 .map_err(|e| Status::cancelled(e.to_string()))?;
         }
@@ -95,7 +95,7 @@ impl DataTransfer for DataTransferService {
 
         let mut tx = self.tx.clone();
         let (res_tx, res_rx) = oneshot::channel();
-        tx.send((req, Some(res_tx)))
+        tx.send((req.priority as Priority, (req, Some(res_tx))))
             .await
             .map_err(|e| Status::cancelled(e.to_string()))?;
 

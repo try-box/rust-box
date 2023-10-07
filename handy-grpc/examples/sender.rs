@@ -2,7 +2,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use handy_grpc::client::{Client, Mailbox, Message, Priority};
+use handy_grpc::client::{Client, Mailbox, Message};
+use handy_grpc::Priority;
 
 // cargo run -r --example sender
 
@@ -61,13 +62,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                for _ in 0..200_000 {
+                for _ in 0..500_000 {
                     //loop {
                     send_count.fetch_add(1, Ordering::SeqCst);
                     send_fut(
                         mailbox.clone(),
                         Message {
                             ver: 1,
+                            priority: p as u32,
                             data: data.clone(),
                         },
                         p,

@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -14,6 +15,7 @@ use tonic::{metadata::MetadataValue, Request, Status};
 use anyhow::{Error, Result};
 use parking_lot::RwLock;
 
+use super::Priority;
 use collections::PriorityQueue;
 use mpsc::with_priority_channel;
 
@@ -23,7 +25,6 @@ pub use super::transferpb::{self, Message};
 type SendError<T> = mpsc::SendError<T>;
 type Sender<T> = mpsc::Sender<T, SendError<T>>;
 
-pub type Priority = u8;
 type PriorityQueueType = Arc<parking_lot::RwLock<PriorityQueue<Priority, Message>>>;
 
 type DataTransferClientType = DataTransferClient<InterceptedService<Channel, AuthInterceptor>>;
@@ -327,7 +328,7 @@ async fn connect(
 
 #[derive(Clone)]
 struct Receiver {
-    rx: Arc<RwLock<mpsc::Receiver<(Priority, Message)>>>,
+    rx: Rc<RwLock<mpsc::Receiver<(Priority, Message)>>>,
 }
 
 unsafe impl Sync for Receiver {}
@@ -336,7 +337,7 @@ unsafe impl Send for Receiver {}
 impl Receiver {
     fn new(rx: mpsc::Receiver<(Priority, Message)>) -> Self {
         Receiver {
-            rx: Arc::new(RwLock::new(rx)),
+            rx: Rc::new(RwLock::new(rx)),
         }
     }
 

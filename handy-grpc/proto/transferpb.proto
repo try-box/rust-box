@@ -9,7 +9,8 @@ service DataTransfer {
 
 message Message {
   int32 ver = 1;
-  bytes data = 2;
+  uint32 priority = 2;
+  bytes data = 10;
 }
 
 message Empty {

@@ -1,9 +1,10 @@
 use std::time::Duration;
 
-use futures::channel::mpsc::channel;
 use futures::StreamExt;
+use handy_grpc::Priority;
 
 use handy_grpc::server::{run, Message};
+use mpsc::priority_channel as channel;
 
 // cargo run -r --example receiver --features rate_print
 
@@ -15,10 +16,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:10000".parse().unwrap();
 
     let runner = async move {
-        let (tx, mut rx) = channel::<Message>(100_000);
+        let (tx, mut rx) = channel::<Priority, Message>(100_000);
 
         let recv_data_fut = async move {
-            while let Some((msg, reply_tx)) = rx.next().await {
+            while let Some((_, (msg, reply_tx))) = rx.next().await {
                 if msg.data.len() == 4 {
                     log::info!("  ==> High priority message, data len 4",);
                 } else {
