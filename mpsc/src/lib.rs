@@ -244,10 +244,10 @@ impl<M, E> futures::Sink<M> for Sender<M, E> {
     }
 }
 
-pub trait ReceiverStream<M>: futures::Stream<Item = M> + Send + Unpin + Waker {}
+pub trait ReceiverStream<M>: futures::Stream<Item = M> + Send + Sync + Unpin + Waker {}
 
 impl<T, M> ReceiverStream<M> for T where
-    T: futures::Stream<Item = M> + Send + Unpin + Waker + 'static
+    T: futures::Stream<Item = M> + Send + Sync + Unpin + Waker + 'static
 {
 }
 
@@ -265,7 +265,7 @@ impl<M> Receiver<M> {
     #[inline]
     pub fn new<T>(tx: T) -> Self
     where
-        T: futures::Stream<Item = M> + Send + Unpin + Waker + 'static,
+        T: futures::Stream<Item = M> + Send + Sync + Unpin + Waker + 'static,
     {
         Receiver { rx: Box::new(tx) }
     }
