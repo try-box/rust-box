@@ -1,6 +1,6 @@
 [package]
 name = "handy-grpc"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["try <trywen@qq.com>"]
 rust-version = "1.56"
@@ -17,6 +17,10 @@ categories = []
 default = []
 rate = ["update_rate"]
 rate_print = ["rate"]
+reuse = ["reuseport", "reuseaddr"]
+reuseport = ["socket2", "tokio-stream"]
+reuseaddr = ["socket2", "tokio-stream"]
+
 
 [dependencies]
 mpsc = { version = "0.2", path = "../mpsc", default-features = false, features = ["priority"] }
@@ -31,6 +35,9 @@ anyhow = "1"
 update_rate = { version = "2", optional = true }
 once_cell = "1"
 parking_lot = "0.12"
+
+socket2 = { version = "0.5", features = ["all"], optional = true }
+tokio-stream = { version = "0.1", features = ["net"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt-multi-thread", "sync"] }

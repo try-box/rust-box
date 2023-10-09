@@ -37,7 +37,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         let run_receiver_fut = async move {
             loop {
-                if let Err(e) = run(addr, tx.clone(), None, None).await {
+                if let Err(e) = run(
+                    addr,
+                    tx.clone(),
+                    None,
+                    None,
+                    #[cfg(feature = "reuseaddr")]
+                    true,
+                    #[cfg(feature = "reuseport")]
+                    true,
+                )
+                .await
+                {
                     log::error!("Run gRPC receiver error, {:?}", e);
                 }
                 tokio::time::sleep(Duration::from_secs(3)).await;

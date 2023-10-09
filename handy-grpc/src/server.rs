@@ -108,7 +108,14 @@ impl DataTransfer for DataTransferService {
     }
 }
 
-pub async fn run(addr: SocketAddr, tx: TX, tls: Option<TLS>, token: Option<String>) -> Result<()> {
+pub async fn run(
+    laddr: SocketAddr,
+    tx: TX,
+    tls: Option<TLS>,
+    token: Option<String>,
+    #[cfg(feature = "reuseaddr")] reuseaddr: bool,
+    #[cfg(feature = "reuseport")] reuseport: bool,
+) -> Result<()> {
     let mut builder = Server::builder();
 
     //Check for TLS and generate an identity.
@@ -145,13 +152,20 @@ pub async fn run(addr: SocketAddr, tx: TX, tls: Option<TLS>, token: Option<Strin
     log::info!(
         "gRPC DataTransfer is listening on {}://{:?}",
         protocol,
-        addr
+        laddr
     );
-    builder
-        .add_service(service)
-        .serve(addr)
-        .await
-        .map_err(Error::new)?;
+
+    let server = builder.add_service(service);
+
+    #[cfg(any(feature = "reuseport", feature = "reuseaddr"))]
+    #[cfg(all(feature = "socket2", feature = "tokio-stream"))]
+    {
+        let listener = socket2_bind(laddr, 1024, reuseaddr, reuseport)?;
+        server.serve_with_incoming(listener).await?;
+    }
+    #[cfg(not(any(feature = "reuseport", feature = "reuseaddr")))]
+    server.serve(laddr).await?;
+
     Ok(())
 }
 
@@ -181,4 +195,29 @@ impl Interceptor for AuthInterceptor {
             Ok(request)
         }
     }
+}
+
+#[inline]
+#[cfg(all(feature = "socket2", feature = "tokio-stream"))]
+fn socket2_bind(
+    laddr: std::net::SocketAddr,
+    backlog: i32,
+    _reuseaddr: bool,
+    _reuseport: bool,
+) -> anyhow::Result<tokio_stream::wrappers::TcpListenerStream> {
+    use socket2::{Domain, SockAddr, Socket, Type};
+    let builder = Socket::new(Domain::for_address(laddr), Type::STREAM, None)?;
+    builder.set_nonblocking(true)?;
+    #[cfg(unix)]
+    #[cfg(feature = "reuseaddr")]
+    builder.set_reuse_address(_reuseaddr)?;
+    #[cfg(unix)]
+    #[cfg(feature = "reuseport")]
+    builder.set_reuse_port(_reuseport)?;
+    builder.bind(&SockAddr::from(laddr))?;
+    builder.listen(backlog)?;
+    let listener = tokio_stream::wrappers::TcpListenerStream::new(
+        tokio::net::TcpListener::from_std(std::net::TcpListener::from(builder))?,
+    );
+    Ok(listener)
 }
