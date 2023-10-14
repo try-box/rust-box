@@ -5,7 +5,6 @@ pub use map::{CacheMapExt, EntryExt, TimedValue};
 pub use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub use wrapper::{HashExt, OrdExt, OrdHashExt};
 
-pub mod async_lock;
 pub mod map;
 pub mod wrapper;
 

@@ -1,6 +1,6 @@
 [package]
 name = "std-ext"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.47"
@@ -13,4 +13,3 @@ categories = []
 
 [dependencies]
 parking_lot = "0.12"
-async-lock = "2.5"
