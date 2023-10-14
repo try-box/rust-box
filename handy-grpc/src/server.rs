@@ -1,8 +1,5 @@
 use std::net::SocketAddr;
 
-#[cfg(feature = "rate")]
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use futures::channel::oneshot;
 use futures::StreamExt;
 use tonic::metadata::{Ascii, MetadataValue};
@@ -11,6 +8,9 @@ use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 
 use anyhow::{Error, Result};
+
+#[cfg(feature = "rate")]
+use rate::Counter;
 
 use super::transferpb::data_transfer_server::{DataTransfer, DataTransferServer};
 use super::transferpb::{self, Empty};
@@ -25,30 +25,21 @@ pub type Message = (
 
 pub struct DataTransferService {
     #[cfg(feature = "rate")]
-    counter: std::sync::Arc<AtomicUsize>,
+    counter: Counter,
     tx: TX,
 }
 
 impl DataTransferService {
     pub fn new(tx: TX) -> Self {
         #[cfg(feature = "rate")]
-        let counter = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = Counter::new(std::time::Duration::from_secs(5));
         #[cfg(feature = "rate_print")]
         {
             let c = counter.clone();
             tokio::spawn(async move {
-                let mut last = 0;
                 loop {
-                    let now = std::time::Instant::now();
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    let curr = c.load(Ordering::SeqCst);
-                    log::info!(
-                        "total: {}, diff: {} rate: {:?}",
-                        curr,
-                        (curr - last),
-                        (curr - last) as f64 / (now.elapsed().as_millis() as f64 / 1000.0)
-                    );
-                    last = curr;
+                    log::info!("total: {}, rate: {:?}", c.total().await, c.rate().await);
                 }
             });
         }
@@ -73,7 +64,8 @@ impl DataTransfer for DataTransferService {
             log::trace!("Request: {:?}", req);
             let req = req?;
             #[cfg(feature = "rate")]
-            self.counter.fetch_add(1, Ordering::SeqCst);
+            self.counter.inc().await;
+
             tx.send((req.priority as Priority, (req, None)))
                 .await
                 .map_err(|e| Status::cancelled(e.to_string()))?;
@@ -91,7 +83,7 @@ impl DataTransfer for DataTransferService {
         log::trace!("Request: {:?}", req);
 
         #[cfg(feature = "rate")]
-        self.counter.fetch_add(1, Ordering::SeqCst);
+        self.counter.inc().await;
 
         let mut tx = self.tx.clone();
         let (res_tx, res_rx) = oneshot::channel();
