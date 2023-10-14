@@ -13,7 +13,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 #[cfg(feature = "rate")]
-use update_rate::{DiscreteRateCounter, RateCounter};
+use rate_counter::Counter as RateCounter;
 
 use queue_ext::{Action, QueueExt, Reply};
 
@@ -33,9 +33,8 @@ pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     queue_max: isize,
     active_count: Counter,
     pub(crate) waiting_count: Counter,
-    completed_count: Counter,
     #[cfg(feature = "rate")]
-    rate_counter: Arc<RwLock<DiscreteRateCounter>>,
+    rate_counter: RateCounter,
     pub(crate) flush_waker: Arc<AtomicWaker>,
     pub(crate) is_flushing: Arc<AtomicBool>,
     is_closed: Arc<AtomicBool>,
@@ -58,7 +57,6 @@ where
             queue_max: self.queue_max,
             active_count: self.active_count.clone(),
             waiting_count: self.waiting_count.clone(),
-            completed_count: self.completed_count.clone(),
             #[cfg(feature = "rate")]
             rate_counter: self.rate_counter.clone(),
             flush_waker: self.flush_waker.clone(),
@@ -93,9 +91,8 @@ where
             queue_max: queue_max as isize,
             active_count: Counter::new(),
             waiting_count: Counter::new(),
-            completed_count: Counter::new(),
             #[cfg(feature = "rate")]
-            rate_counter: Arc::new(RwLock::new(DiscreteRateCounter::new(100))),
+            rate_counter: RateCounter::new(std::time::Duration::from_secs(5)),
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
             is_closed: Arc::new(AtomicBool::new(false)),
@@ -159,8 +156,9 @@ where
     }
 
     #[inline]
-    pub fn completed_count(&self) -> isize {
-        self.completed_count.value()
+    #[cfg(feature = "rate")]
+    pub async fn completed_count(&self) -> isize {
+        self.rate_counter.total().await
     }
 
     #[inline]
@@ -175,8 +173,8 @@ where
 
     #[inline]
     #[cfg(feature = "rate")]
-    pub fn rate(&self) -> f64 {
-        self.rate_counter.read().rate()
+    pub async fn rate(&self) -> f64 {
+        self.rate_counter.rate().await
     }
 
     #[inline]
@@ -240,10 +238,9 @@ where
                         Some(task) => {
                             exec.active_count.inc();
                             task.await;
-                            exec.completed_count.inc();
                             exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            exec.rate_counter.write().update();
+                            exec.rate_counter.inc().await;
                         }
                         None => break,
                     }
@@ -348,8 +345,9 @@ where
                         if let Some(task) = task {
                             exec.active_count.inc();
                             task.await;
-                            exec.completed_count.inc();
                             exec.active_count.dec();
+                            #[cfg(feature = "rate")]
+                            exec.rate_counter.inc().await;
                         } else {
                             group_channels.remove(&name);
                             break;

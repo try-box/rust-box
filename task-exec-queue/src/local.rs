@@ -13,7 +13,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 #[cfg(feature = "rate")]
-use update_rate::{DiscreteRateCounter, RateCounter};
+use rate_counter::LocalCounter as RateCounter;
 
 use crate::local_builder::LocalSender;
 use queue_ext::{Action, QueueExt, Reply};
@@ -36,7 +36,7 @@ pub struct LocalTaskExecQueue<Tx = LocalSender<(), mpsc::SendError>, G = (), D =
     pub(crate) waiting_count: Counter,
     completed_count: Counter,
     #[cfg(feature = "rate")]
-    rate_counter: Rc<RwLock<DiscreteRateCounter>>,
+    rate_counter: RateCounter,
     pub(crate) flush_waker: Rc<AtomicWaker>,
     pub(crate) is_flushing: Rc<AtomicBool>,
     is_closed: Rc<AtomicBool>,
@@ -96,7 +96,7 @@ where
             waiting_count: Counter::new(),
             completed_count: Counter::new(),
             #[cfg(feature = "rate")]
-            rate_counter: Rc::new(RwLock::new(DiscreteRateCounter::new(100))),
+            rate_counter: RateCounter::new(std::time::Duration::from_secs(5)),
             flush_waker: Rc::new(AtomicWaker::new()),
             is_flushing: Rc::new(AtomicBool::new(false)),
             is_closed: Rc::new(AtomicBool::new(false)),
@@ -160,8 +160,9 @@ where
     }
 
     #[inline]
-    pub fn completed_count(&self) -> isize {
-        self.completed_count.value()
+    #[cfg(feature = "rate")]
+    pub async fn completed_count(&self) -> isize {
+        self.rate_counter.total().await
     }
 
     #[inline]
@@ -176,8 +177,8 @@ where
 
     #[inline]
     #[cfg(feature = "rate")]
-    pub fn rate(&self) -> f64 {
-        self.rate_counter.read().rate()
+    pub async fn rate(&self) -> f64 {
+        self.rate_counter.rate().await
     }
 
     #[inline]
@@ -241,10 +242,9 @@ where
                         Some(task) => {
                             exec.active_count.inc();
                             task.await;
-                            exec.completed_count.inc();
                             exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            exec.rate_counter.write().update();
+                            exec.rate_counter.inc().await;
                         }
                         None => break,
                     }
@@ -353,8 +353,9 @@ where
                         if let Some(task) = task {
                             exec.active_count.inc();
                             task.await;
-                            exec.completed_count.inc();
                             exec.active_count.dec();
+                            #[cfg(feature = "rate")]
+                            exec.rate_counter.inc().await;
                         } else {
                             group_channels.remove(&name);
                             break;
