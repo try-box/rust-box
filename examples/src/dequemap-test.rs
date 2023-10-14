@@ -1,4 +1,4 @@
-use rust_box::dequemap::DequeMap;
+use rust_box::dequemap::DequeBTreeMap as DequeMap;
 
 //use dequemap::DequeMap;
 

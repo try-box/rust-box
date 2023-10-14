@@ -17,23 +17,23 @@ fn main() {
     std::env::set_var("RUST_LOG", "task_exec_queue_test=info");
     env_logger::init();
 
-//    test_quick_start();
-//    test_return_result();
-//    test_default_set();
-//    test_task_exec_queue();
+    test_quick_start();
+    test_return_result();
+    test_default_set();
+    test_task_exec_queue();
     test_task_exec_queue_with_priority_channel();
 
-//    test_channel();
-//    test_channel_custom();
-//    test_channel_with_name();
-//
-//    test_group();
-//    test_group_bench();
-//
-//    test_local();
-//    test_local_with_channel();
-//    test_local_group_with_channel();
-//    test_local_task_exec_queue();
+    test_channel();
+    test_channel_custom();
+    test_channel_with_name();
+
+    test_group();
+    test_group_bench();
+
+    test_local();
+    test_local_with_channel();
+    test_local_group_with_channel();
+    test_local_task_exec_queue();
 }
 
 //quick start
@@ -52,20 +52,20 @@ fn test_quick_start() {
         let _ = async {
             log::info!("[test_quick_start] hello world!");
         }
-        .spawn()
-        .await;
+            .spawn()
+            .await;
 
         default().flush().await;
 
         log::info!(
             "[test_quick_start] completed_count: {}, waiting_count: {}, active_count: {}",
-            default().completed_count(),
+            default().completed_count().await,
             default().waiting_count(),
             default().active_count()
         );
 
         assert!(
-            default().completed_count() == 1
+            default().completed_count().await == 1
                 && default().waiting_count() == 0
                 && default().active_count() == 0
         );
@@ -89,13 +89,13 @@ fn test_return_result() {
 
         log::info!(
             "[test_return_result] completed_count: {}, waiting_count: {}, active_count: {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             exec.waiting_count(),
             exec.active_count(),
         );
 
         assert!(
-            exec.completed_count() == 1
+            exec.completed_count().await == 1
                 && exec.waiting_count() == 0
                 && exec.active_count() == 0
                 && res.is_ok()
@@ -126,9 +126,9 @@ fn test_channel() {
             let _res = async {
                 log::info!("[test_channel] with mpsc: hello world!");
             }
-            .spawn(&exec1)
-            .result()
-            .await;
+                .spawn(&exec1)
+                .result()
+                .await;
         });
 
         spawn(async move {
@@ -137,28 +137,30 @@ fn test_channel() {
                 log::info!("[test_channel] with mpsc and result: hello world!");
                 100
             }
-            .spawn(&exec2)
-            .result()
-            .await;
+                .spawn(&exec2)
+                .result()
+                .await;
             log::info!("[test_channel] result: {:?}", res.ok());
         });
 
         exec.spawn(async {
             log::info!("[test_channel] hello world!");
         })
-        .result()
-        .await;
+            .result()
+            .await;
 
         exec.flush().await;
         log::info!(
             "[test_channel]  exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
 
         assert!(
-            exec.completed_count() == 3 && exec.waiting_count() == 0 && exec.active_count() == 0
+            exec.completed_count().await == 3
+                && exec.waiting_count() == 0
+                && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -185,11 +187,13 @@ fn test_channel_custom() {
             "[test_channel_custom]  exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
 
         assert!(
-            exec.completed_count() == 1 && exec.waiting_count() == 0 && exec.active_count() == 0
+            exec.completed_count().await == 1
+                && exec.waiting_count() == 0
+                && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -242,9 +246,9 @@ fn test_channel_with_name() {
                 sleep(Duration::from_micros(50)).await;
                 "a hello world!"
             }
-            .spawn_with(&exec1, "test1")
-            .result()
-            .await;
+                .spawn_with(&exec1, "test1")
+                .result()
+                .await;
             log::info!(
                 "[test_channel_with_name] 1 with name result: {:?}",
                 res.ok()
@@ -256,9 +260,9 @@ fn test_channel_with_name() {
                 sleep(Duration::from_micros(50)).await;
                 "b hello world!"
             }
-            .spawn_with(&exec2, "test1")
-            .result()
-            .await;
+                .spawn_with(&exec2, "test1")
+                .result()
+                .await;
             log::info!(
                 "[test_channel_with_name] 2 with name result: {:?}",
                 res.ok()
@@ -268,7 +272,7 @@ fn test_channel_with_name() {
             "[test_channel_with_name] 2 exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
         sleep(Duration::from_micros(70)).await;
         exec.spawn_with(
@@ -277,12 +281,12 @@ fn test_channel_with_name() {
             },
             "test1",
         )
-        .await;
+            .await;
         log::info!(
             "[test_channel_with_name] 3 exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
         exec.flush().await;
         //        sleep(Duration::from_millis(200)).await;
@@ -290,11 +294,11 @@ fn test_channel_with_name() {
             "[test_channel_with_name] 4 exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
 
         assert!(
-            (exec.completed_count() == 2 || exec.completed_count() == 3)
+            (exec.completed_count().await == 2 || exec.completed_count().await == 3)
                 && exec.waiting_count() == 0
                 && exec.active_count() == 0
         );
@@ -358,8 +362,8 @@ fn test_default_set() {
         let res = async {
             log::info!("[test_default_set] execute task ...");
         }
-        .spawn()
-        .await;
+            .spawn()
+            .await;
         assert_eq!(res.ok(), Some(()));
 
         //execute task and return result...
@@ -442,7 +446,7 @@ fn test_task_exec_queue() {
             let mut last = 0;
             loop {
                 sleep(std::time::Duration::from_millis(1000)).await;
-                let completed_count = exec.completed_count();
+                let completed_count = exec.completed_count().await;
                 log::info!(
                     "[test_task_exec_queue] {:?} pending_wakers: {:?}, waiting_wakers: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                     now.elapsed(),
@@ -476,15 +480,15 @@ fn test_task_exec_queue() {
             exec.is_full(),
             exec.is_closed(),
             exec.is_flushing(),
-            exec.completed_count(),
-            exec.rate()
+            exec.completed_count().await,
+            exec.rate().await
         );
 
         let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
         assert!(
-            exec.completed_count() == completed_count,
+            exec.completed_count().await == completed_count,
             "completed_count: {}, {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             completed_count
         );
         assert!(thread_ids.lock().unwrap().len() > 1);
@@ -584,7 +588,7 @@ fn test_task_exec_queue_with_priority_channel() {
             let mut last = 0;
             loop {
                 sleep(std::time::Duration::from_millis(1000)).await;
-                let completed_count = exec.completed_count();
+                let completed_count = exec.completed_count().await;
                 log::info!(
                     "[test_task_exec_queue_with_priority_channel] {:?} pending_wakers: {:?}, waiting_wakers: {:?}, actives: {}, waitings: {}, is_full: {},  closed: {}, flushing: {}, completeds: {}, rate: {:?}",
                     now.elapsed(),
@@ -596,7 +600,7 @@ fn test_task_exec_queue_with_priority_channel() {
                     exec.is_closed(),
                     exec.is_flushing(),
                     completed_count,
-                    (completed_count - last) as f64 / 3.0 //exec.rate()
+                    (completed_count - last) as f64 / 3.0 //exec.rate().await
                 );
                 last = completed_count;
             }
@@ -612,9 +616,9 @@ fn test_task_exec_queue_with_priority_channel() {
                     quickly_completed_count1.fetch_add(1, Ordering::SeqCst);
                     log::info!("********** High priority: {:?}", 255);
                 }
-                .spawn_with(&exec2, u8::MAX)
-                .quickly()
-                .await;
+                    .spawn_with(&exec2, u8::MAX)
+                    .quickly()
+                    .await;
                 sleep(std::time::Duration::from_millis(5000)).await;
             }
         });
@@ -636,15 +640,16 @@ fn test_task_exec_queue_with_priority_channel() {
             exec.is_full(),
             exec.is_closed(),
             exec.is_flushing(),
-            exec.completed_count(),
-            exec.rate()
+            exec.completed_count().await,
+            exec.rate().await
         );
 
-        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst) + quickly_completed_count.load(Ordering::SeqCst);
+        let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst)
+            + quickly_completed_count.load(Ordering::SeqCst);
         assert!(
-            exec.completed_count() == completed_count,
+            exec.completed_count().await == completed_count,
             "completed_count: {}, {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             completed_count
         );
         assert!(thread_ids.lock().unwrap().len() > 1);
@@ -675,9 +680,9 @@ fn test_group() {
         let _res = async move {
             log::info!("[test_group] hello world!");
         }
-        .spawn(&exec)
-        .group("g1")
-        .await;
+            .spawn(&exec)
+            .group("g1")
+            .await;
 
         let res = async move { "hello world!" }
             .spawn(&exec)
@@ -691,10 +696,12 @@ fn test_group() {
             "[test_group] exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
             exec.waiting_count(),
-            exec.completed_count()
+            exec.completed_count().await
         );
         assert!(
-            exec.completed_count() == 2 && exec.waiting_count() == 0 && exec.active_count() == 0
+            exec.completed_count().await == 2
+                && exec.waiting_count() == 0
+                && exec.active_count() == 0
         );
     };
     async_std::task::block_on(root_fut);
@@ -778,8 +785,8 @@ fn test_group_bench() {
                 exec.is_full(),
                 exec.is_closed(),
                 exec.is_flushing(),
-                exec.completed_count(),
-                exec.rate()
+                exec.completed_count().await,
+                exec.rate().await
             );
                 sleep(std::time::Duration::from_millis(500)).await;
             }
@@ -792,9 +799,9 @@ fn test_group_bench() {
 
         let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
         assert!(
-            exec.completed_count() == completed_count,
+            exec.completed_count().await == completed_count,
             "completed_count: {}, {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             completed_count
         );
 
@@ -808,14 +815,14 @@ fn test_group_bench() {
             exec.is_full(),
             exec.is_closed(),
             exec.is_flushing(),
-            exec.completed_count(),
-            exec.rate()
+            exec.completed_count().await,
+            exec.rate().await
         );
         let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
         assert!(
-            exec.completed_count() == completed_count,
+            exec.completed_count().await == completed_count,
             "completed_count: {}, {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             completed_count
         );
     };
@@ -842,7 +849,7 @@ fn test_local() {
         exec.flush().await;
         exec.close().await;
 
-        assert!(exec.completed_count() == 1);
+        assert!(exec.completed_count().await == 1);
     };
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
 }
@@ -865,7 +872,7 @@ fn test_local_with_channel() {
         exec.flush().await;
         exec.close().await;
 
-        assert!(exec.completed_count() == 1);
+        assert!(exec.completed_count().await == 1);
     };
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
 }
@@ -891,7 +898,7 @@ fn test_local_group_with_channel() {
 
         exec.flush().await;
         exec.close().await;
-        assert!(exec.completed_count() == 1);
+        assert!(exec.completed_count().await == 1);
     };
     tokio::task::LocalSet::new().block_on(&tokio::runtime::Runtime::new().unwrap(), root_fut);
 }
@@ -978,8 +985,8 @@ fn test_local_task_exec_queue() {
                     exec.is_full(),
                     exec.is_closed(),
                     exec.is_flushing(),
-                    exec.completed_count(),
-                    exec.rate()
+                    exec.completed_count().await,
+                    exec.rate().await
                 );
                 sleep(std::time::Duration::from_millis(200)).await;
             }
@@ -1004,15 +1011,15 @@ fn test_local_task_exec_queue() {
             exec.is_full(),
             exec.is_closed(),
             exec.is_flushing(),
-            exec.completed_count(),
-            exec.rate()
+            exec.completed_count().await,
+            exec.rate().await
         );
 
         let completed_count = (MAX_TASKS * 2) - is_closes.load(Ordering::SeqCst);
         assert!(
-            exec.completed_count() == completed_count,
+            exec.completed_count().await == completed_count,
             "completed_count: {}, {}",
-            exec.completed_count(),
+            exec.completed_count().await,
             completed_count
         );
     };

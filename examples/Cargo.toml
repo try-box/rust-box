@@ -31,6 +31,11 @@ path = "src/channel-test.rs"
 name = "dequemap-test"
 path = "src/dequemap-test.rs"
 
+[[bin]]
+name = "counter-test"
+path = "src/counter-test.rs"
+
+
 [dependencies]
 rust-box = { path = "../", features = ["full"] }
 
@@ -46,6 +51,10 @@ leaky-bucket = "0.12"
 governor = "0.6"
 nonzero_ext = { version = "0.3.0", default-features = false }
 rand = "0.8.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+time =  { version = "0.3.29", features = ["local-offset"] }
+
+
 
 async-std = { version = "1.12", features = ["attributes", "unstable"] }
 tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
