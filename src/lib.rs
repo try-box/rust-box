@@ -33,3 +33,7 @@ pub use handy_grpc;
 #[doc(inline)]
 #[cfg(feature = "collections")]
 pub use collections;
+
+#[doc(inline)]
+#[cfg(feature = "counter")]
+pub use counter;

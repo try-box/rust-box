@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.9.3"
+version = "0.10.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,7 @@ default = []
 full = ["queue-ext", "stream-ext", "task-exec-queue", "event", "std-ext", "mpsc", "dequemap", "stream-ext-leaky-bucket",
     "stream-ext-governor", "task-exec-queue-rate", "mpsc-segqueue", "mpsc-vecdeque", "mpsc-indexmap", "mpsc-priority",
     "dequemap-std", "dequemap-serde", "dequemap-btreemap", "handy-grpc", "handy-grpc-reuse", "collections", "collections-std", "collections-serde",
-    "collections-binary-heap", "collections-priority-queue"]
+    "collections-binary-heap", "collections-priority-queue", "counter", "counter-rate", "counter-count"]
 
 stream-ext-leaky-bucket = ["stream-ext/leaky-bucket"]
 stream-ext-governor = ["stream-ext/governor"]
@@ -40,16 +40,20 @@ collections-priority-queue = ["collections/priority-queue"]
 
 handy-grpc-reuse = ["handy-grpc/reuse"]
 
+counter-rate = ["counter/rate"]
+counter-count = ["counter/count"]
+
 [dependencies]
 queue-ext = { version = "0.4.1", path = "./queue-ext", optional = true }
 stream-ext = { version = "0.2.3", path = "./stream-ext", optional = true }
-task-exec-queue = { version = "0.7.0", path = "./task-exec-queue", optional = true }
+task-exec-queue = { version = "0.8.0", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
 std-ext = { version = "0.2.0", path = "./std-ext", optional = true }
 mpsc = { version = "0.2.3", path = "./mpsc", optional = true }
 dequemap = { version = "0.2.0", path = "./dequemap", optional = true }
-handy-grpc = { version = "0.1.2", path = "./handy-grpc", optional = true }
+handy-grpc = { version = "0.1.3", path = "./handy-grpc", optional = true }
 collections = { package = "box-collections", version = "0.1.0", path = "./collections", optional = true }
+counter = { package = "box-counter", version = "0.1.0", path = "./counter", optional = true }
 
 [workspace]
 members = [
@@ -62,7 +66,8 @@ members = [
     "mpsc",
     "dequemap",
     "handy-grpc",
-    "collections"
+    "collections",
+    "counter"
 ]
 
 [patch.crates-io]
@@ -75,4 +80,4 @@ mpsc = { path = "mpsc" }
 dequemap = { path = "dequemap" }
 handy-grpc = { path = "handy-grpc" }
 collections = {package = "box-collections", path = "collections" }
-
+counter = {package = "box-counter", path = "counter" }
