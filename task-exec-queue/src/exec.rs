@@ -92,7 +92,7 @@ where
             active_count: Counter::new(),
             waiting_count: Counter::new(),
             #[cfg(feature = "rate")]
-            rate_counter: RateCounter::new(std::time::Duration::from_secs(5)),
+            rate_counter: RateCounter::new(std::time::Duration::from_secs(3)),
             flush_waker: Arc::new(AtomicWaker::new()),
             is_flushing: Arc::new(AtomicBool::new(false)),
             is_closed: Arc::new(AtomicBool::new(false)),
