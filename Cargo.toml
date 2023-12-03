@@ -57,7 +57,7 @@ dequemap = { version = "0.2.0", path = "./dequemap", optional = true }
 handy-grpc = { version = "0.1.3", path = "./handy-grpc", optional = true }
 collections = { package = "box-collections", version = "0.1.0", path = "./collections", optional = true }
 counter = { package = "box-counter", version = "0.1.0", path = "./counter", optional = true }
-convert = { package = "convert", version = "0.1.0", path = "./convert", optional = true }
+convert = { package = "box-convert", version = "0.1.0", path = "./convert", optional = true }
 
 
 [workspace]
@@ -87,4 +87,4 @@ dequemap = { path = "dequemap" }
 handy-grpc = { path = "handy-grpc" }
 collections = {package = "box-collections", path = "collections" }
 counter = {package = "box-counter", path = "counter" }
-convert = {package = "convert", path = "convert" }
+convert = {package = "box-convert", path = "convert" }

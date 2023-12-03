@@ -1,5 +1,5 @@
 [package]
-name = "convert"
+name = "box-convert"
 version = "0.1.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
