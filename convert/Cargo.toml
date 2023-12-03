@@ -1,0 +1,19 @@
+[package]
+name = "convert"
+version = "0.1.0"
+authors = ["try <trywen@qq.com>"]
+edition = "2018"
+rust-version = "1.47"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/try-box/rust-box/tree/main/convert"
+homepage = "https://github.com/try-box/rust-box/tree/main/convert"
+description = "convert"
+keywords = ["convert"]
+categories = []
+
+[features]
+default = []
+bytesize = []
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
