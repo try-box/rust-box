@@ -43,7 +43,7 @@ where
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         if self.inner.sink.is_closed() {
@@ -106,7 +106,7 @@ where
 
 impl<Item, Tx, G> Future for GroupSpawner<'_, Item, Tx, G>
 where
-    Item: Future + Send + 'static,
+    Item: Future + Send + Sync + 'static,
     Item::Output: Send + 'static,
     Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
     G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
@@ -195,7 +195,7 @@ where
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         if self.inner.inner.sink.is_full() {
@@ -209,7 +209,7 @@ where
 
 impl<Item, Tx, G> Future for TryGroupSpawner<'_, Item, Tx, G>
 where
-    Item: Future + Send + 'static,
+    Item: Future + Send + Sync + 'static,
     Item::Output: Send + 'static,
     Tx: Clone + Unpin + Sink<((), TaskType)> + Send + Sync + 'static,
     G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
@@ -247,7 +247,7 @@ where
     #[inline]
     pub fn group(self, name: G) -> GroupSpawner<'a, Item, Tx, G>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         let fut = GroupSpawner::new(self, name);
@@ -280,7 +280,7 @@ where
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         if self.sink.is_closed() {
@@ -337,7 +337,7 @@ where
 
 impl<Item, Tx, G, D> Future for Spawner<'_, Item, Tx, G, D>
 where
-    Item: Future + Send + 'static,
+    Item: Future + Send + Sync + 'static,
     Item::Output: Send + 'static,
     Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
     G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
@@ -412,7 +412,7 @@ where
     #[inline]
     pub fn group(self, name: G) -> TryGroupSpawner<'a, Item, Tx, G>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         let fut = TryGroupSpawner::new(self.inner, name);
@@ -447,7 +447,7 @@ where
     #[inline]
     pub async fn result(mut self) -> Result<Item::Output, Error<Item>>
     where
-        Item: Future + Send + 'static,
+        Item: Future + Send + Sync + 'static,
         Item::Output: Send + 'static,
     {
         if self.inner.sink.is_full() {
@@ -459,7 +459,7 @@ where
 
 impl<Item, Tx, G, D> Future for TrySpawner<'_, Item, Tx, G, D>
 where
-    Item: Future + Send + 'static,
+    Item: Future + Send + Sync + 'static,
     Item::Output: Send + 'static,
     Tx: Clone + Unpin + Sink<(D, TaskType)> + Send + Sync + 'static,
     G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
