@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.11.0"
+version = "0.11.1"
 authors = ["try <trywen@qq.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -49,7 +49,7 @@ convert-bytesize = ["convert/bytesize"]
 [dependencies]
 queue-ext = { version = "0.4.1", path = "./queue-ext", optional = true }
 stream-ext = { version = "0.2.4", path = "./stream-ext", optional = true }
-task-exec-queue = { version = "0.9.0", path = "./task-exec-queue", optional = true }
+task-exec-queue = { version = "0.9.1", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.1", path = "./event", optional = true }
 std-ext = { version = "0.2.2", path = "./std-ext", optional = true }
 mpsc = { version = "0.2.3", path = "./mpsc", optional = true }
