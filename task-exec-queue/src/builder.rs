@@ -10,7 +10,7 @@ pub trait SpawnExt: futures::Future {
     #[inline]
     fn spawn<Tx, G>(self, queue: &TaskExecQueue<Tx, G>) -> Spawner<Self, Tx, G, ()>
     where
-        Self: Sized + Send + Sync + 'static,
+        Self: Sized + Send + 'static,
         Self::Output: Send + 'static,
         Tx: Clone + Unpin + futures::Sink<((), TaskType)> + Send + Sync + 'static,
         G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
@@ -26,7 +26,7 @@ pub trait SpawnExt: futures::Future {
         name: D,
     ) -> Spawner<Self, Tx, G, D>
     where
-        Self: Sized + Send + Sync + 'static,
+        Self: Sized + Send + 'static,
         Self::Output: Send + 'static,
         Tx: Clone + Unpin + futures::Sink<(D, TaskType)> + Send + Sync + 'static,
         G: Hash + Eq + Clone + Debug + Send + Sync + 'static,
@@ -42,7 +42,7 @@ pub trait SpawnDefaultExt: futures::Future {
     #[inline]
     fn spawn(self) -> Spawner<'static, Self, futures::channel::mpsc::Sender<((), TaskType)>, (), ()>
     where
-        Self: Sized + Send + Sync + 'static,
+        Self: Sized + Send + 'static,
         Self::Output: Send + 'static,
     {
         let f = Spawner::new(default(), self, ());

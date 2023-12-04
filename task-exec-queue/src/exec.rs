@@ -25,7 +25,7 @@ use super::{
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 type GroupChannels<G> = Arc<DashMap<G, Arc<Mutex<GroupTaskExecQueue<TaskType>>>>>;
 
-pub type TaskType = Box<dyn std::future::Future<Output = ()> + Send + Sync + 'static + Unpin>;
+pub type TaskType = Box<dyn std::future::Future<Output = ()> + Send + 'static + Unpin>;
 
 pub struct TaskExecQueue<Tx = mpsc::Sender<((), TaskType)>, G = (), D = ()> {
     pub(crate) tx: Tx,
@@ -109,7 +109,7 @@ where
     pub fn try_spawn_with<T>(&self, msg: T, name: D) -> TrySpawner<'_, T, Tx, G, D>
     where
         D: Clone,
-        T: Future + Send + Sync + 'static,
+        T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
         let fut = TrySpawner::new(self, msg, name);
@@ -120,7 +120,7 @@ where
     pub fn spawn_with<T>(&self, msg: T, name: D) -> Spawner<'_, T, Tx, G, D>
     where
         D: Clone,
-        T: Future + Send + Sync + 'static,
+        T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
         let fut = Spawner::new(self, msg, name);
@@ -297,7 +297,7 @@ where
     #[inline]
     pub fn try_spawn<T>(&self, task: T) -> TrySpawner<'_, T, Tx, G, ()>
     where
-        T: Future + Send + Sync + 'static,
+        T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
         let fut = TrySpawner::new(self, task, ());
@@ -307,7 +307,7 @@ where
     #[inline]
     pub fn spawn<T>(&self, task: T) -> Spawner<'_, T, Tx, G, ()>
     where
-        T: Future + Send + Sync + 'static,
+        T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
         let fut = Spawner::new(self, task, ());
