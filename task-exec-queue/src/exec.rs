@@ -382,7 +382,8 @@ struct OneValue(Arc<RwLock<Option<TaskType>>>);
 impl OneValue {
     #[inline]
     fn new() -> Self {
-        Self(Arc::new(RwLock::new(None)))
+        #[allow(clippy::arc_with_non_send_sync)]
+        Self(Arc::new(RwLock::new(None::<TaskType>)))
     }
 
     #[inline]
