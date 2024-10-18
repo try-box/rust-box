@@ -30,7 +30,7 @@ impl<P: Ord, V> PriorityQueue<P, V> {
 
     #[inline]
     pub fn peek(&self) -> Option<&(P, V)> {
-        self.data.get(0)
+        self.data.first()
     }
 
     #[inline]

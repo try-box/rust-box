@@ -31,7 +31,7 @@ impl<T: Ord> BinaryHeap<T> {
 
     #[inline]
     pub fn peek(&self) -> Option<&T> {
-        self.data.get(0)
+        self.data.first()
     }
 
     #[inline]
