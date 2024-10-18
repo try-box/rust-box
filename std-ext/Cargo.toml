@@ -1,9 +1,9 @@
 [package]
 name = "std-ext"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
-rust-version = "1.47"
+rust-version = "1.53"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box/tree/main/std-ext"
 homepage = "https://github.com/try-box/rust-box/tree/main/std-ext"
@@ -12,4 +12,4 @@ keywords = ["std"]
 categories = []
 
 [dependencies]
-parking_lot = "0.12"
+dequemap = { workspace = true, default-features = false, features = ["btreemap", "hashmap"] }

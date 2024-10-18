@@ -9,15 +9,15 @@ use std::hash::{BuildHasher, Hash};
 use std::time::{Duration, Instant};
 
 pub trait CacheMapExt<K, V> {
-    fn get_with_timeout<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    fn get_with_timeout<Q>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q> + Ord,
-        Q: Hash + Eq + Ord;
+        Q: Hash + Eq + Ord + ?Sized;
 
-    fn get_with_timeout_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    fn get_with_timeout_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
     where
         K: Borrow<Q> + Ord,
-        Q: Hash + Eq + Ord;
+        Q: Hash + Eq + Ord + ?Sized;
 
     fn insert_with_timeout(&mut self, k: K, v: V, timeout: Option<Duration>) -> Option<V>;
 
@@ -46,10 +46,10 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    fn get_with_timeout<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    fn get_with_timeout<Q>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         self.get(k).and_then(|tv| {
             if tv.is_expired() {
@@ -60,10 +60,10 @@ where
         })
     }
 
-    fn get_with_timeout_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    fn get_with_timeout_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         self.get_mut(k).and_then(|tv| {
             if tv.is_expired() {
@@ -156,10 +156,10 @@ where
 }
 
 impl<K: Ord, V> CacheMapExt<K, V> for BTreeMap<K, TimedValue<V>> {
-    fn get_with_timeout<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    fn get_with_timeout<Q>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.get(k).and_then(|tv| {
             if tv.is_expired() {
@@ -170,10 +170,10 @@ impl<K: Ord, V> CacheMapExt<K, V> for BTreeMap<K, TimedValue<V>> {
         })
     }
 
-    fn get_with_timeout_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    fn get_with_timeout_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
     where
         K: Borrow<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.get_mut(k).and_then(|tv| {
             if tv.is_expired() {
@@ -251,6 +251,232 @@ where
                 v.value_mut()
             }
             btree_map::Entry::Vacant(entry) => {
+                let value = default(entry.key());
+                entry.insert(TimedValue::new(value, timeout)).value_mut()
+            }
+        }
+    }
+
+    fn and_modify_with_timeout<F>(self, f: F) -> Self
+    where
+        F: FnOnce(&mut V),
+    {
+        self.and_modify(|v| f(v.value_mut()))
+    }
+}
+
+impl<K: Ord + Clone, V> CacheMapExt<K, V> for dequemap::DequeBTreeMap<K, TimedValue<V>> {
+    fn get_with_timeout<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.get(k).and_then(|tv| {
+            if tv.is_expired() {
+                None
+            } else {
+                Some(tv.value())
+            }
+        })
+    }
+
+    fn get_with_timeout_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.get_mut(k).and_then(|tv| {
+            if tv.is_expired() {
+                None
+            } else {
+                Some(tv.value_mut())
+            }
+        })
+    }
+
+    fn insert_with_timeout(&mut self, k: K, v: V, timeout: Option<Duration>) -> Option<V> {
+        self.insert(k, TimedValue::new(v, timeout))
+            .map(|tv| tv.into_value())
+    }
+
+    fn remove_expired_values(&mut self) {
+        self.retain(|_, tv| !tv.is_expired());
+    }
+}
+
+impl<'a, K, V> EntryExt<'a, K, V> for dequemap::btreemap::Entry<'a, K, TimedValue<V>>
+where
+    K: Ord + Clone,
+{
+    fn or_insert_with_timeout(self, default: V, timeout: Option<Duration>) -> &'a mut V {
+        match self {
+            dequemap::btreemap::Entry::Occupied(entry) => {
+                let v = entry.into_mut();
+                if v.is_expired() {
+                    *v = TimedValue::new(default, timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::btreemap::Entry::Vacant(entry) => {
+                entry.insert(TimedValue::new(default, timeout)).value_mut()
+            }
+        }
+    }
+
+    fn or_insert_with_timeout_f<F: FnOnce() -> V>(
+        self,
+        default: F,
+        timeout: Option<Duration>,
+    ) -> &'a mut V {
+        match self {
+            dequemap::btreemap::Entry::Occupied(entry) => {
+                let v = entry.into_mut();
+                if v.is_expired() {
+                    *v = TimedValue::new(default(), timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::btreemap::Entry::Vacant(entry) => entry
+                .insert(TimedValue::new(default(), timeout))
+                .value_mut(),
+        }
+    }
+
+    fn or_insert_with_timeout_key_f<F: FnOnce(&K) -> V>(
+        self,
+        default: F,
+        timeout: Option<Duration>,
+    ) -> &'a mut V {
+        match self {
+            dequemap::btreemap::Entry::Occupied(entry) => {
+                let value = if entry.get().is_expired() {
+                    Some(default(entry.key()))
+                } else {
+                    None
+                };
+                let v = entry.into_mut();
+                if let Some(value) = value {
+                    *v = TimedValue::new(value, timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::btreemap::Entry::Vacant(entry) => {
+                let value = default(entry.key());
+                entry.insert(TimedValue::new(value, timeout)).value_mut()
+            }
+        }
+    }
+
+    fn and_modify_with_timeout<F>(self, f: F) -> Self
+    where
+        F: FnOnce(&mut V),
+    {
+        self.and_modify(|v| f(v.value_mut()))
+    }
+}
+
+//------------------
+impl<K, V, S> CacheMapExt<K, V> for dequemap::DequeHashMap<K, TimedValue<V>, S>
+where
+    K: Hash + Eq + Ord + Clone,
+    S: BuildHasher,
+{
+    fn get_with_timeout<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.get(k).and_then(|tv| {
+            if tv.is_expired() {
+                None
+            } else {
+                Some(tv.value())
+            }
+        })
+    }
+
+    fn get_with_timeout_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.get_mut(k).and_then(|tv| {
+            if tv.is_expired() {
+                None
+            } else {
+                Some(tv.value_mut())
+            }
+        })
+    }
+
+    fn insert_with_timeout(&mut self, k: K, v: V, timeout: Option<Duration>) -> Option<V> {
+        self.insert(k, TimedValue::new(v, timeout))
+            .map(|tv| tv.into_value())
+    }
+
+    fn remove_expired_values(&mut self) {
+        self.retain(|_, tv| !tv.is_expired());
+    }
+}
+
+impl<'a, K, V, S> EntryExt<'a, K, V> for dequemap::hashmap::Entry<'a, K, TimedValue<V>, S>
+where
+    K: Eq + Hash + Clone,
+    S: BuildHasher,
+{
+    fn or_insert_with_timeout(self, default: V, timeout: Option<Duration>) -> &'a mut V {
+        match self {
+            dequemap::hashmap::Entry::Occupied(entry) => {
+                let v = entry.into_mut();
+                if v.is_expired() {
+                    *v = TimedValue::new(default, timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::hashmap::Entry::Vacant(entry) => {
+                entry.insert(TimedValue::new(default, timeout)).value_mut()
+            }
+        }
+    }
+
+    fn or_insert_with_timeout_f<F: FnOnce() -> V>(
+        self,
+        default: F,
+        timeout: Option<Duration>,
+    ) -> &'a mut V {
+        match self {
+            dequemap::hashmap::Entry::Occupied(entry) => {
+                let v = entry.into_mut();
+                if v.is_expired() {
+                    *v = TimedValue::new(default(), timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::hashmap::Entry::Vacant(entry) => entry
+                .insert(TimedValue::new(default(), timeout))
+                .value_mut(),
+        }
+    }
+
+    fn or_insert_with_timeout_key_f<F: FnOnce(&K) -> V>(
+        self,
+        default: F,
+        timeout: Option<Duration>,
+    ) -> &'a mut V {
+        match self {
+            dequemap::hashmap::Entry::Occupied(entry) => {
+                let value = if entry.get().is_expired() {
+                    Some(default(entry.key()))
+                } else {
+                    None
+                };
+                let v = entry.into_mut();
+                if let Some(value) = value {
+                    *v = TimedValue::new(value, timeout);
+                }
+                v.value_mut()
+            }
+            dequemap::hashmap::Entry::Vacant(entry) => {
                 let value = default(entry.key());
                 entry.insert(TimedValue::new(value, timeout)).value_mut()
             }
@@ -356,6 +582,7 @@ fn test_cache_map_ext() {
 #[test]
 fn test_btree_map_ext() {
     let mut m: BTreeMap<_, _> = BTreeMap::default();
+
     let old1 = m.insert_with_timeout("k1", 1, None);
     let old2 = m.insert_with_timeout("k2", 2, Some(Duration::from_millis(50)));
     let old3 = m.insert_with_timeout("k3", 3, Some(Duration::from_millis(80)));
@@ -396,4 +623,39 @@ fn test_btree_map_ext() {
     });
     assert_eq!(m.get_with_timeout("kk1"), Some(&100));
     println!("kk1: {:?}", m.get_with_timeout("kk1"));
+}
+
+#[test]
+fn test_btree_map_ext_removes() {
+    let mut m: dequemap::DequeBTreeMap<_, _> = dequemap::DequeBTreeMap::default();
+    m.push_back(3, TimedValue::new((), Some(Duration::from_millis(800))));
+    std::thread::sleep(Duration::from_millis(100));
+    m.push_back(1, TimedValue::new((), Some(Duration::from_millis(800))));
+    std::thread::sleep(Duration::from_millis(100));
+    m.push_back(6, TimedValue::new((), Some(Duration::from_millis(800))));
+    std::thread::sleep(Duration::from_millis(100));
+    m.push_back(8, TimedValue::new((), Some(Duration::from_millis(800))));
+    std::thread::sleep(Duration::from_millis(100));
+    m.push_back(3, TimedValue::new((), Some(Duration::from_millis(800))));
+
+    assert_eq!(m.len(), 4);
+    for (key, item) in m.iter() {
+        println!("key: {:?}, is_expired: {}", key, item.is_expired());
+    }
+    println!("--------------------------------------------------------------");
+    std::thread::sleep(Duration::from_millis(600));
+
+    while let Some((key, item)) = m.front() {
+        println!("clean expired, key: {}", key);
+        if item.is_expired() {
+            m.pop_front();
+        } else {
+            break;
+        }
+    }
+    println!("m.len(): {}", m.len());
+    for (key, item) in m.iter() {
+        println!("key: {:?}, is_expired: {}", key, item.is_expired());
+    }
+    assert_eq!(m.len(), 2);
 }

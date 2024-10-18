@@ -2,7 +2,6 @@ use core::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU64, AtomicUs
 use std::sync::Arc;
 
 pub use map::{CacheMapExt, EntryExt, TimedValue};
-pub use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub use wrapper::{HashExt, OrdExt, OrdHashExt};
 
 pub mod map;
@@ -44,30 +43,6 @@ pub trait ArcExt {
     }
 }
 
-impl<T: ?Sized> RwLockExt for T {}
-
-pub trait RwLockExt {
-    #[inline]
-    fn rwlock(self) -> RwLock<Self>
-    where
-        Self: Sized,
-    {
-        RwLock::new(self)
-    }
-}
-
-impl<T: ?Sized> MutexExt for T {}
-
-pub trait MutexExt {
-    #[inline]
-    fn mutex(self) -> Mutex<Self>
-    where
-        Self: Sized,
-    {
-        Mutex::new(self)
-    }
-}
-
 pub trait AtomicExt<T> {
     fn atomic(self) -> T;
 }
@@ -105,22 +80,6 @@ impl AtomicExt<AtomicBool> for bool {
     fn atomic(self) -> AtomicBool {
         AtomicBool::new(self)
     }
-}
-
-#[test]
-fn test_rwlock() {
-    let a = 1.rwlock().arc();
-    assert_eq!(*a.read(), 1);
-    *a.write() = 2;
-    assert_eq!(*a.read(), 2);
-}
-
-#[test]
-fn test_mutex() {
-    let m = 1.mutex().arc();
-    assert_eq!(*m.lock(), 1);
-    *m.lock() = 2;
-    assert_eq!(*m.lock(), 2);
 }
 
 #[test]
