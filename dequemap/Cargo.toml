@@ -1,9 +1,9 @@
 [package]
 name = "dequemap"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["try <trywen@qq.com>"]
-edition = "2018"
-rust-version = "1.47"
+edition = "2021"
+rust-version = "1.65"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/try-box/rust-box/tree/main/dequemap"
 homepage = "https://github.com/try-box/rust-box/tree/main/dequemap"
@@ -19,7 +19,7 @@ hashmap = ["hashbrown"]
 
 [dependencies]
 serde = { version = "1.0", optional = true, default-features = false}
-hashbrown = { version = "0.14", optional = true, default-features = false, features = ["ahash"]}
+hashbrown = { version = "0.15", optional = true, default-features = false, features = ["default-hasher"]}
 
 [dev-dependencies]
 bincode = "1.3"

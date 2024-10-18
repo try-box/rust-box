@@ -1,6 +1,7 @@
 use alloc::collections::vec_deque::IntoIter as DequeIntoIter;
 use alloc::collections::vec_deque::Iter as DequeIter;
 
+use alloc::collections::BTreeSet;
 use alloc::collections::VecDeque;
 use alloc::collections::{btree_map, BTreeMap};
 use core::borrow::Borrow;
@@ -64,6 +65,7 @@ use core::ops::{Index, IndexMut};
 ///
 ///```
 ///// Create a new, empty DequeBTreeMap
+///use dequemap::DequeBTreeMap;
 ///let mut map: DequeBTreeMap<String, i32> = DequeBTreeMap::new();
 ///
 ///// Insert a key-value pair at the back of the queue
@@ -217,28 +219,28 @@ impl<K, V> DequeBTreeMap<K, V> {
     }
 
     #[inline]
-    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    pub fn get<Q>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q> + Ord,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.entries.get(k)
     }
 
     #[inline]
-    pub fn get_key_value<Q: ?Sized>(&self, key: &Q) -> Option<(&K, &V)>
+    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
         K: Borrow<Q> + Ord,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.entries.get_key_value(key)
     }
 
     #[inline]
-    pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
+    pub fn get_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
     where
         K: Borrow<Q> + Ord,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.entries.get_mut(k)
     }
@@ -262,10 +264,10 @@ impl<K, V> DequeBTreeMap<K, V> {
     }
 
     #[inline]
-    pub fn contains_key<Q: ?Sized>(&self, k: &Q) -> bool
+    pub fn contains_key<Q>(&self, k: &Q) -> bool
     where
         K: Borrow<Q> + Ord,
-        Q: Ord,
+        Q: Ord + ?Sized,
     {
         self.entries.contains_key(k)
     }
@@ -322,6 +324,24 @@ impl<K, V> DequeBTreeMap<K, V> {
         } else {
             None
         }
+    }
+
+    #[inline]
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        K: Ord + Clone,
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        let mut removeds = BTreeSet::new();
+        self.entries.retain(|k, v| {
+            if f(k, v) {
+                true
+            } else {
+                removeds.insert(k.clone());
+                false
+            }
+        });
+        self.indices.retain(|k| !removeds.contains(k))
     }
 
     #[inline]
@@ -1012,4 +1032,21 @@ fn test_dequemap_extend() {
         [(2, 20), (1, 10), (9, 90), (10, 100), (5, 50)]
     );
     assert_eq!(map.entries.len(), map.indices.len());
+}
+
+#[test]
+fn test_dequemap_retain() {
+    let mut map = DequeBTreeMap::new();
+    map.push_back(2, 20);
+    map.push_back(1, 10);
+    map.push_back(9, 90);
+    map.extend([(10, 100), (5, 50)]);
+
+    assert_eq!(map.entries.len(), map.indices.len());
+    assert_eq!(map.entries.len(), 5);
+
+    map.retain(|k, _| *k != 10 && *k != 2);
+
+    assert_eq!(map.entries.len(), map.indices.len());
+    assert_eq!(map.entries.len(), 3);
 }
