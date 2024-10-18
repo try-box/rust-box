@@ -9,7 +9,7 @@ pub use queue_ext::SendError;
 use queue_ext::{Action, QueueExt, Reply, Waker};
 
 #[cfg(feature = "priority")]
-use box_collections::PriorityQueue;
+use collections::PriorityQueue;
 
 ///BinaryHeap based channel
 #[cfg(feature = "priority")]

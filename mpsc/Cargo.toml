@@ -1,6 +1,6 @@
 [package]
 name = "mpsc"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.47"
@@ -15,11 +15,11 @@ categories = []
 default = ["segqueue"]
 segqueue = ["crossbeam-queue"]
 vecdeque = []
-priority = ["box-collections"]
+priority = ["collections"]
 
 [dependencies]
-std-ext.workspace = true
-queue-ext.workspace = true
+std-ext = { version = "0.3", path = "../std-ext" }
+queue-ext = { version = "0.4", path = "../queue-ext" }
 
 futures = "0.3"
 rand = "0.8"
@@ -30,7 +30,7 @@ parking_lot = "0.12"
 
 crossbeam-queue = { version = "0.3", optional = true }
 indexmap = { version = "1.9", features = ["std"], optional = true }
-box-collections = {workspace = true, features = ["std", "priority-queue"], optional = true }
+collections = { package = "box-collections", version = "0.1", path = "../collections", features = ["std", "priority-queue"], optional = true }
 
 
 
