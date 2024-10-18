@@ -8,11 +8,14 @@ pub use queue_ext::SendError;
 #[allow(unused_imports)]
 use queue_ext::{Action, QueueExt, Reply, Waker};
 
+#[cfg(feature = "priority")]
+use box_collections::PriorityQueue;
+
 ///BinaryHeap based channel
 #[cfg(feature = "priority")]
 #[allow(clippy::type_complexity)]
 pub fn with_priority_channel<P: Ord + 'static, T: 'static>(
-    queue: std::sync::Arc<std_ext::RwLock<collections::PriorityQueue<P, T>>>,
+    queue: std::sync::Arc<parking_lot::RwLock<PriorityQueue<P, T>>>,
     bound: usize,
 ) -> (Sender<(P, T), SendError<(P, T)>>, Receiver<(P, T)>) {
     let (tx, rx) = queue.queue_channel::<_, _, _, _>(
@@ -43,9 +46,8 @@ pub fn with_priority_channel<P: Ord + 'static, T: 'static>(
 pub fn priority_channel<P: 'static + Ord, T: 'static>(
     bound: usize,
 ) -> (Sender<(P, T), SendError<(P, T)>>, Receiver<(P, T)>) {
-    use collections::PriorityQueue;
-    use std_ext::{ArcExt, RwLockExt};
-    let queue = PriorityQueue::default().rwlock().arc();
+    use PriorityQueue;
+    let queue = std::sync::Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
     with_priority_channel(queue, bound)
 }
 
@@ -84,7 +86,7 @@ pub fn segqueue_channel<T: 'static>(bound: usize) -> (Sender<T, SendError<T>>, R
 ///VecDeque based channel
 #[cfg(feature = "vecdeque")]
 pub fn with_vecdeque_channel<T: 'static>(
-    queue: std::sync::Arc<std_ext::RwLock<std::collections::VecDeque<T>>>,
+    queue: std::sync::Arc<parking_lot::RwLock<std::collections::VecDeque<T>>>,
     bound: usize,
 ) -> (Sender<T, SendError<T>>, Receiver<T>) {
     let (tx, rx) = queue.queue_channel::<T, _, _, _>(
@@ -112,8 +114,7 @@ pub fn with_vecdeque_channel<T: 'static>(
 #[cfg(feature = "vecdeque")]
 pub fn vecdeque_channel<T: 'static>(bound: usize) -> (Sender<T, SendError<T>>, Receiver<T>) {
     use std::collections::VecDeque;
-    use std_ext::{ArcExt, RwLockExt};
-    let queue = VecDeque::default().rwlock().arc();
+    let queue = std::sync::Arc::new(parking_lot::RwLock::new(VecDeque::default()));
     with_vecdeque_channel(queue, bound)
 }
 
@@ -121,7 +122,7 @@ pub fn vecdeque_channel<T: 'static>(bound: usize) -> (Sender<T, SendError<T>>, R
 #[cfg(feature = "indexmap")]
 #[allow(clippy::type_complexity)]
 pub fn with_indexmap_channel<K, T>(
-    indexmap: std::sync::Arc<std_ext::RwLock<indexmap::IndexMap<K, T>>>,
+    indexmap: std::sync::Arc<parking_lot::RwLock<indexmap::IndexMap<K, T>>>,
     bound: usize,
 ) -> (Sender<(K, T), SendError<(K, T)>>, Receiver<(K, T)>)
 where
@@ -160,8 +161,7 @@ where
     T: 'static,
 {
     use indexmap::IndexMap;
-    use std_ext::{ArcExt, RwLockExt};
-    let map = IndexMap::new().rwlock().arc();
+    let map = std::sync::Arc::new(parking_lot::RwLock::new(IndexMap::new()));
     with_indexmap_channel(map, bound)
 }
 
