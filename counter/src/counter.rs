@@ -49,9 +49,16 @@ impl Deref for Counter {
 }
 
 impl Counter {
+    #[cfg(feature = "rate")]
     #[inline]
     pub fn new(period: Duration) -> Self {
         Self(Arc::new(CounterInner::new_inner(period)))
+    }
+
+    #[cfg(not(feature = "rate"))]
+    #[inline]
+    pub fn new() -> Self {
+        Self(Arc::new(CounterInner::new_inner(Duration::from_secs(3))))
     }
 
     #[inline]
@@ -88,6 +95,8 @@ struct Rater {
     period: Duration,
     #[serde(skip, default = "Rater::now_default")]
     now: Instant,
+    //auto update rater,
+    auto_update: bool,
 }
 
 #[cfg(feature = "rate")]
@@ -124,6 +133,7 @@ impl CounterInner {
                 now: Instant::now(),
                 recent: 0,
                 period,
+                auto_update: true,
             },
         };
 
@@ -146,13 +156,33 @@ impl CounterInner {
         #[cfg(feature = "rate")]
         {
             inner.rater.total += c;
-            let elapsed = inner.rater.now.elapsed();
-            if elapsed >= inner.rater.period {
-                let period_count = inner.rater.total - inner.rater.recent;
-                inner.rater.rate = period_count as f64 / elapsed.as_secs_f64();
-                inner.rater.now = Instant::now();
-                inner.rater.recent = inner.rater.total;
+            if inner.rater.auto_update {
+                let elapsed = inner.rater.now.elapsed();
+                if elapsed >= inner.rater.period {
+                    let period_count = inner.rater.total - inner.rater.recent;
+                    inner.rater.rate = period_count as f64 / elapsed.as_secs_f64();
+                    inner.rater.now = Instant::now();
+                    inner.rater.recent = inner.rater.total;
+                }
             }
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "rate")]
+    pub async fn close_auto_update(&self) {
+        self.0.lock().await.rater.auto_update = false;
+    }
+    #[inline]
+    #[cfg(feature = "rate")]
+    pub async fn rate_update(&self) {
+        let mut inner = self.0.lock().await;
+        let elapsed = inner.rater.now.elapsed();
+        if elapsed >= inner.rater.period {
+            let period_count = inner.rater.total - inner.rater.recent;
+            inner.rater.rate = period_count as f64 / elapsed.as_secs_f64();
+            inner.rater.now = Instant::now();
+            inner.rater.recent = inner.rater.total;
         }
     }
 
