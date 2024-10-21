@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use futures::lock::Mutex;
+use parking_lot::Mutex;
 
 #[derive(Clone)]
 #[cfg(any(feature = "count", feature = "rate"))]
@@ -25,12 +25,12 @@ impl LocalCounter {
     }
 
     #[inline]
-    pub async fn serialize(&self) -> bincode::Result<Vec<u8>> {
-        bincode::serialize(self.0 .0.lock().await.deref())
+    pub fn serialize(&self) -> bincode::Result<Vec<u8>> {
+        bincode::serialize(self.0 .0.lock().deref())
     }
 
     #[inline]
-    pub async fn deserialize(bytes: &[u8]) -> bincode::Result<LocalCounter> {
+    pub fn deserialize(bytes: &[u8]) -> bincode::Result<LocalCounter> {
         let inner = bincode::deserialize::<Inner>(bytes)?;
         Ok(LocalCounter(Rc::new(CounterInner(Mutex::new(inner)))))
     }
@@ -62,12 +62,12 @@ impl Counter {
     }
 
     #[inline]
-    pub async fn serialize(&self) -> bincode::Result<Vec<u8>> {
-        bincode::serialize(self.0 .0.lock().await.deref())
+    pub fn serialize(&self) -> bincode::Result<Vec<u8>> {
+        bincode::serialize(self.0 .0.lock().deref())
     }
 
     #[inline]
-    pub async fn deserialize(bytes: &[u8]) -> bincode::Result<Counter> {
+    pub fn deserialize(bytes: &[u8]) -> bincode::Result<Counter> {
         let inner = bincode::deserialize::<Inner>(bytes)?;
         Ok(Counter(Arc::new(CounterInner(Mutex::new(inner)))))
     }
@@ -141,13 +141,13 @@ impl CounterInner {
     }
 
     #[inline]
-    pub async fn inc(&self) {
-        self.incs(1).await;
+    pub fn inc(&self) {
+        self.incs(1);
     }
 
     #[inline]
-    pub async fn incs(&self, c: isize) {
-        let mut inner = self.0.lock().await;
+    pub fn incs(&self, c: isize) {
+        let mut inner = self.0.lock();
         #[cfg(feature = "count")]
         {
             inner.curr += c;
@@ -170,13 +170,14 @@ impl CounterInner {
 
     #[inline]
     #[cfg(feature = "rate")]
-    pub async fn close_auto_update(&self) {
-        self.0.lock().await.rater.auto_update = false;
+    pub fn close_auto_update(&self) {
+        self.0.lock().rater.auto_update = false;
     }
+
     #[inline]
     #[cfg(feature = "rate")]
-    pub async fn rate_update(&self) {
-        let mut inner = self.0.lock().await;
+    pub fn rate_update(&self) {
+        let mut inner = self.0.lock();
         let elapsed = inner.rater.now.elapsed();
         if elapsed >= inner.rater.period {
             let period_count = inner.rater.total - inner.rater.recent;
@@ -187,8 +188,8 @@ impl CounterInner {
     }
 
     #[inline]
-    pub async fn sets(&self, c: isize) {
-        let mut inner = self.0.lock().await;
+    pub fn sets(&self, c: isize) {
+        let mut inner = self.0.lock();
         #[cfg(feature = "count")]
         {
             inner.curr = c;
@@ -202,59 +203,59 @@ impl CounterInner {
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn dec(&self) {
-        self.decs(1).await
+    pub fn dec(&self) {
+        self.decs(1)
     }
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn decs(&self, c: isize) {
-        let mut inner = self.0.lock().await;
+    pub fn decs(&self, c: isize) {
+        let mut inner = self.0.lock();
         inner.curr -= c;
     }
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn set_curr_min(&self, count: isize) {
-        let mut inner = self.0.lock().await;
+    pub fn set_curr_min(&self, count: isize) {
+        let mut inner = self.0.lock();
         inner.curr = inner.curr.min(count);
     }
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn set_max_max(&self, max: isize) {
-        let mut inner = self.0.lock().await;
+    pub fn set_max_max(&self, max: isize) {
+        let mut inner = self.0.lock();
         inner.max = inner.max.max(max);
     }
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn count(&self) -> isize {
-        self.0.lock().await.curr
+    pub fn count(&self) -> isize {
+        self.0.lock().curr
     }
 
     #[inline]
     #[cfg(feature = "count")]
-    pub async fn max(&self) -> isize {
-        self.0.lock().await.max
+    pub fn max(&self) -> isize {
+        self.0.lock().max
     }
 
     #[inline]
     #[cfg(feature = "rate")]
-    pub async fn total(&self) -> isize {
-        self.0.lock().await.rater.total
+    pub fn total(&self) -> isize {
+        self.0.lock().rater.total
     }
 
     #[inline]
     #[cfg(feature = "rate")]
-    pub async fn rate(&self) -> f64 {
-        self.0.lock().await.rater.rate
+    pub fn rate(&self) -> f64 {
+        self.0.lock().rater.rate
     }
 
     #[inline]
-    pub async fn add(&self, other: &Self) {
-        let mut inner = self.0.lock().await;
-        let other = other.0.lock().await;
+    pub fn add(&self, other: &Self) {
+        let mut inner = self.0.lock();
+        let other = other.0.lock();
         #[cfg(feature = "count")]
         {
             inner.curr += other.curr;
@@ -268,9 +269,9 @@ impl CounterInner {
     }
 
     #[inline]
-    pub async fn set(&self, other: &Self) {
-        let mut inner = self.0.lock().await;
-        let other = other.0.lock().await;
+    pub fn set(&self, other: &Self) {
+        let mut inner = self.0.lock();
+        let other = other.0.lock();
         #[cfg(feature = "count")]
         {
             inner.curr = other.curr;
