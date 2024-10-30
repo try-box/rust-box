@@ -162,7 +162,7 @@ where
     #[inline]
     #[cfg(feature = "rate")]
     pub async fn completed_count(&self) -> isize {
-        self.rate_counter.total().await
+        self.rate_counter.total()
     }
 
     #[inline]
@@ -178,7 +178,7 @@ where
     #[inline]
     #[cfg(feature = "rate")]
     pub async fn rate(&self) -> f64 {
-        self.rate_counter.rate().await
+        self.rate_counter.rate()
     }
 
     #[inline]
@@ -244,7 +244,7 @@ where
                             task.await;
                             exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            exec.rate_counter.inc().await;
+                            exec.rate_counter.inc();
                         }
                         None => break,
                     }
@@ -355,7 +355,7 @@ where
                             task.await;
                             exec.active_count.dec();
                             #[cfg(feature = "rate")]
-                            exec.rate_counter.inc().await;
+                            exec.rate_counter.inc();
                         } else {
                             group_channels.remove(&name);
                             break;
