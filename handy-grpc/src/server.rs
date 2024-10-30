@@ -39,7 +39,7 @@ impl DataTransferService {
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    log::info!("total: {}, rate: {:?}", c.total().await, c.rate().await);
+                    log::info!("total: {}, rate: {:?}", c.total(), c.rate());
                 }
             });
         }
@@ -64,7 +64,7 @@ impl DataTransfer for DataTransferService {
             log::trace!("Request: {:?}", req);
             let req = req?;
             #[cfg(feature = "rate")]
-            self.counter.inc().await;
+            self.counter.inc();
 
             tx.send((req.priority as Priority, (req, None)))
                 .await
@@ -83,7 +83,7 @@ impl DataTransfer for DataTransferService {
         log::trace!("Request: {:?}", req);
 
         #[cfg(feature = "rate")]
-        self.counter.inc().await;
+        self.counter.inc();
 
         let mut tx = self.tx.clone();
         let (res_tx, res_rx) = oneshot::channel();
