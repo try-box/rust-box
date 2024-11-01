@@ -8,8 +8,10 @@ service DataTransfer {
 }
 
 message Message {
-  int32 ver = 1;
-  uint32 priority = 2;
+  uint64 id = 1;
+  uint32 priority = 3;
+  uint32 total_chunks = 5;
+  uint32 chunk_index =7;
   bytes data = 10;
 }
 

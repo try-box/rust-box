@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use handy_grpc::client::{Client, Mailbox, Message};
+use handy_grpc::client::{Client, Mailbox};
 use handy_grpc::Priority;
 
 // cargo run -r --example sender
@@ -15,7 +15,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:10000";
 
     let runner = async move {
-        let mut c = Client::new(addr.into()).concurrency_limit(32).build().await;
+        let mut c = Client::new(addr.into())
+            .concurrency_limit(32)
+            .chunk_size(1024 * 1024 * 2)
+            .build()
+            .await;
         let send_count = Arc::new(AtomicUsize::new(0));
         let complete_count = Arc::new(AtomicUsize::new(0));
         let fail_count = Arc::new(AtomicUsize::new(0));
@@ -25,27 +29,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let send = |mailbox: Mailbox,
                         data: Vec<u8>,
                         p: Priority,
-                        sleep_dur: Duration,
+                        sleep_dur: Option<Duration>,
                         complete_count: Arc<AtomicUsize>,
                         send_count: Arc<AtomicUsize>,
                         fail_count: Arc<AtomicUsize>| async move {
                 let send_fut = |mut mailbox: Mailbox,
-                                msg: Message,
+                                data: Vec<u8>,
                                 p: Priority,
                                 complete_count: Arc<AtomicUsize>,
                                 fail_count: Arc<AtomicUsize>| async move {
-                    let msg_bak = msg.clone();
+                    let msg_bak = data.clone();
                     let p_bak = p.clone();
-                    let mut msg1 = Some(msg);
+                    let mut msg1 = Some(data);
                     let mut p1 = Some(p);
                     loop {
-                        let send_result = mailbox
-                            .send_priority(msg1.take().unwrap(), p1.take().unwrap())
-                            .await;
+                        let pp = p1.take().unwrap();
+                        let send_result = mailbox.send_priority(msg1.take().unwrap(), pp).await;
                         if let Err(e) = send_result {
                             fail_count.fetch_add(1, Ordering::SeqCst);
                             log::trace!("send error, {:?}", e);
-                            if let Some((pp, mm)) = e.into_inner() {
+                            if let Some(mm) = e.into_inner() {
                                 msg1 = Some(mm);
                                 p1 = Some(pp);
                             } else {
@@ -62,34 +65,30 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                for _ in 0..500_000 {
+                for _ in 0..500_000_00 {
                     //loop {
                     send_count.fetch_add(1, Ordering::SeqCst);
                     send_fut(
                         mailbox.clone(),
-                        Message {
-                            ver: 1,
-                            priority: p as u32,
-                            data: data.clone(),
-                        },
+                        data.clone(),
                         p,
                         complete_count.clone(),
                         fail_count.clone(),
                     )
                     .await;
-                    if sleep_dur > Duration::ZERO {
+                    if let Some(sleep_dur) = sleep_dur {
                         tokio::time::sleep(sleep_dur).await;
                     }
                 }
             };
 
             let mut sends = Vec::new();
-            for i in 0..100 {
+            for i in 0..5000 {
                 sends.push(send(
                     mailbox.clone(),
                     msg.clone(),
                     i,
-                    Duration::from_millis(0),
+                    Some(Duration::from_millis(0)),
                     complete_count.clone(),
                     send_count.clone(),
                     fail_count.clone(),
@@ -97,9 +96,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
             sends.push(send(
                 mailbox.clone(),
-                vec![0, 1, 2, 3],
+                vec![6].repeat(1024).repeat(1024).repeat(100),
                 Priority::MAX,
-                Duration::from_millis(5000),
+                Some(Duration::from_millis(1000)),
                 complete_count.clone(),
                 send_count.clone(),
                 fail_count.clone(),

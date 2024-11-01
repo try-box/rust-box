@@ -1,6 +1,6 @@
 [package]
 name = "handy-grpc"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 authors = ["try <trywen@qq.com>"]
 rust-version = "1.56"
@@ -24,9 +24,11 @@ reuseaddr = ["socket2", "tokio-stream"]
 [dependencies]
 mpsc = { version = "0.2", path = "../mpsc", default-features = false, features = ["priority"] }
 collections = { package = "box-collections", version = "0.1", path = "../collections" , default-features = false, features = ["priority-queue"] }
+dequemap = { version = "0.2", path = "../dequemap", default-features = false, features = ["btreemap"] }
+
 tokio = { version = "1", default-features = false, features = ["time"] }
-tonic = { version = "0.9", features = ["tls"] }
-prost = "0.11"
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
 serde = { version = "1", features = ["derive"] }
 futures = "0.3"
 log = "0.4"
@@ -40,8 +42,7 @@ tokio-stream = { version = "0.1", features = ["net"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt-multi-thread", "sync"] }
-env_logger = "0.8"
+env_logger = "0.11"
 
 [build-dependencies]
-tonic-build = { version = "0.9", features = ["prost"] }
-
+tonic-build = { version = "0.12", features = ["prost"] }
