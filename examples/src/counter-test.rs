@@ -45,34 +45,36 @@ fn main() {
     env_logger::init();
 
     let runner = async move {
-        test_counter().await;
+        test_counter_update_rate().await;
         test_counter2().await;
     };
 
     let rt = tokio::runtime::Builder::new_current_thread()
-    //let rt = tokio::runtime::Builder::new_multi_thread()
+        //let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         //.worker_threads(8)
         .build()
         .unwrap();
 
-//    tokio::runtime::Runtime::new().unwrap().block_on(runner);
+    //    tokio::runtime::Runtime::new().unwrap().block_on(runner);
     tokio::task::LocalSet::new().block_on(&rt, runner);
 }
 
-async fn test_counter() {
-    let c = Counter::new(Duration::from_secs(5));
+async fn test_counter_update_rate() {
+    let c = Counter::new(Duration::from_secs(3));
+    c.close_auto_update();
     let c1 = c.clone();
+    let c2 = c.clone();
     let threads = Arc::new(parking_lot::RwLock::new(HashSet::new()));
-    for _ in 0..1000 {
+    for _ in 0..1 {
         let c1 = c1.clone();
         let threads1 = threads.clone();
         spawn(async move {
-            for _ in 0..10000000 {
+            for _ in 0..1000 {
                 let c1 = c1.clone();
                 let threads1 = threads1.clone();
                 spawn(async move {
-                    c1.inc().await;
+                    c1.inc();
                     threads1.write().insert(std::thread::current().id());
                     tokio::time::sleep(Duration::from_millis(1000)).await;
                 });
@@ -81,19 +83,34 @@ async fn test_counter() {
         });
     }
 
+    let threads1 = threads.clone();
+    spawn(async move {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        for _ in 0..1000 {
+            let c2 = c2.clone();
+            let threads1 = threads1.clone();
+            spawn(async move {
+                c2.inc();
+                threads1.write().insert(std::thread::current().id());
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            });
+            tokio::time::sleep(Duration::ZERO).await;
+        }
+    });
+
     let use_time = std::time::Instant::now();
-    for _ in 0..8 {
+    for _ in 0..1000 {
+        c.rate_update();
         println!(
             "{:?}, count: {}, max: {}, total: {}, rate: {}, threads: {}",
             use_time.elapsed(),
-            c.count().await,
-            c.max().await,
-            c.total().await,
-            c.rate().await,
+            c.count(),
+            c.max(),
+            c.total(),
+            c.rate(),
             threads.read().len()
         );
-                tokio::time::sleep(Duration::from_secs(5)).await;
-//        std::thread::sleep(Duration::from_secs(5));
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
 
@@ -129,11 +146,10 @@ async fn test_counter2() {
             c.rate(),
             threads.read().len()
         );
-                tokio::time::sleep(Duration::from_secs(5)).await;
-//        std::thread::sleep(Duration::from_secs(5));
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        //        std::thread::sleep(Duration::from_secs(5));
     }
 }
-
 
 use std::sync::atomic::{AtomicI64, AtomicIsize, Ordering};
 use std::sync::Arc;

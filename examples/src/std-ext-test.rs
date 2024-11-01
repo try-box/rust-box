@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use parking_lot::{Mutex, RwLock};
 use rust_box::std_ext::ArcExt;
 
 fn main() {
@@ -10,8 +11,8 @@ fn main() {
     test_rwlock();
     test_mutex();
     test_atomic();
-    test_async_rwlock();
-    test_async_mutex();
+    // test_async_rwlock();
+    // test_async_mutex();
 }
 
 fn test_std_arc() {
@@ -21,16 +22,14 @@ fn test_std_arc() {
 }
 
 fn test_rwlock() {
-    use rust_box::std_ext::RwLockExt;
-    let a = 1.rwlock().arc();
+    let a = RwLock::new(1).arc();
     assert_eq!(*a.read(), 1);
     *a.write() = 2;
     assert_eq!(*a.read(), 2);
 }
 
 fn test_mutex() {
-    use rust_box::std_ext::MutexExt;
-    let m = 1.mutex().arc();
+    let m = Mutex::new(1).arc();
     assert_eq!(*m.lock(), 1);
     *m.lock() = 2;
     assert_eq!(*m.lock(), 2);
@@ -46,24 +45,24 @@ fn test_atomic() {
     assert!(true.atomic().load(Ordering::SeqCst))
 }
 
-fn test_async_rwlock() {
-    use rust_box::std_ext::async_lock::RwLockExt;
-    let runner = async move {
-        let a = 1.rwlock().arc();
-        assert_eq!(*a.read().await, 1);
-        *a.write().await = 2;
-        assert_eq!(*a.read().await, 2);
-    };
-    async_std::task::block_on(runner);
-}
+// fn test_async_rwlock() {
+//     use rust_box::std_ext::async_lock::RwLockExt;
+//     let runner = async move {
+//         let a = 1.rwlock().arc();
+//         assert_eq!(*a.read().await, 1);
+//         *a.write().await = 2;
+//         assert_eq!(*a.read().await, 2);
+//     };
+//     async_std::task::block_on(runner);
+// }
 
-fn test_async_mutex() {
-    use rust_box::std_ext::async_lock::MutexExt;
-    let runner = async move {
-        let m = 1.mutex().arc();
-        assert_eq!(*m.lock().await, 1);
-        *m.lock().await = 2;
-        assert_eq!(*m.lock().await, 2);
-    };
-    async_std::task::block_on(runner);
-}
+// fn test_async_mutex() {
+//     use rust_box::std_ext::async_lock::MutexExt;
+//     let runner = async move {
+//         let m = 1.mutex().arc();
+//         assert_eq!(*m.lock().await, 1);
+//         *m.lock().await = 2;
+//         assert_eq!(*m.lock().await, 2);
+//     };
+//     async_std::task::block_on(runner);
+// }

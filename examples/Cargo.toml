@@ -47,7 +47,7 @@ log = "0.4"
 env_logger = "0.8.4"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
-leaky-bucket = "0.12"
+leaky-bucket = "1.0"
 governor = "0.6"
 nonzero_ext = { version = "0.3.0", default-features = false }
 rand = "0.8.4"

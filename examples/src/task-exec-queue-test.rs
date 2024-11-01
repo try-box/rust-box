@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use crossbeam_queue::SegQueue;
 use futures::{Sink, Stream};
+use parking_lot::RwLock;
 use rust_box::queue_ext::{Action, QueueExt, Reply};
-use rust_box::std_ext::ArcExt;
 
 fn main() {
     std::env::set_var("RUST_LOG", "task_exec_queue_test=info");
@@ -52,8 +52,8 @@ fn test_quick_start() {
         let _ = async {
             log::info!("[test_quick_start] hello world!");
         }
-            .spawn()
-            .await;
+        .spawn()
+        .await;
 
         default().flush().await;
 
@@ -126,9 +126,9 @@ fn test_channel() {
             let _res = async {
                 log::info!("[test_channel] with mpsc: hello world!");
             }
-                .spawn(&exec1)
-                .result()
-                .await;
+            .spawn(&exec1)
+            .result()
+            .await;
         });
 
         spawn(async move {
@@ -137,17 +137,17 @@ fn test_channel() {
                 log::info!("[test_channel] with mpsc and result: hello world!");
                 100
             }
-                .spawn(&exec2)
-                .result()
-                .await;
+            .spawn(&exec2)
+            .result()
+            .await;
             log::info!("[test_channel] result: {:?}", res.ok());
         });
 
         exec.spawn(async {
             log::info!("[test_channel] hello world!");
         })
-            .result()
-            .await;
+        .result()
+        .await;
 
         exec.flush().await;
         log::info!(
@@ -246,9 +246,9 @@ fn test_channel_with_name() {
                 sleep(Duration::from_micros(50)).await;
                 "a hello world!"
             }
-                .spawn_with(&exec1, "test1")
-                .result()
-                .await;
+            .spawn_with(&exec1, "test1")
+            .result()
+            .await;
             log::info!(
                 "[test_channel_with_name] 1 with name result: {:?}",
                 res.ok()
@@ -260,9 +260,9 @@ fn test_channel_with_name() {
                 sleep(Duration::from_micros(50)).await;
                 "b hello world!"
             }
-                .spawn_with(&exec2, "test1")
-                .result()
-                .await;
+            .spawn_with(&exec2, "test1")
+            .result()
+            .await;
             log::info!(
                 "[test_channel_with_name] 2 with name result: {:?}",
                 res.ok()
@@ -281,7 +281,7 @@ fn test_channel_with_name() {
             },
             "test1",
         )
-            .await;
+        .await;
         log::info!(
             "[test_channel_with_name] 3 exec.actives: {}, waitings: {}, completeds: {}",
             exec.active_count(),
@@ -362,8 +362,8 @@ fn test_default_set() {
         let res = async {
             log::info!("[test_default_set] execute task ...");
         }
-            .spawn()
-            .await;
+        .spawn()
+        .await;
         assert_eq!(res.ok(), Some(()));
 
         //execute task and return result...
@@ -501,15 +501,13 @@ fn test_task_exec_queue() {
 
 //
 fn test_task_exec_queue_with_priority_channel() {
-    use rust_box::std_ext::RwLockExt;
+    use rust_box::std_ext::ArcExt;
     use rust_box::task_exec_queue::Builder;
     use rust_box::task_exec_queue::SpawnExt;
     use tokio::{task::spawn, time::sleep};
     const MAX_TASKS: isize = 5_000_000;
     let now = std::time::Instant::now();
-    let queue = rust_box::collections::PriorityQueue::default()
-        .rwlock()
-        .arc();
+    let queue = RwLock::new(rust_box::collections::PriorityQueue::default()).arc();
     let max_queue = 10_000;
     let (tx, rx) = rust_box::mpsc::with_priority_channel(queue, max_queue);
     let (exec, task_runner) = Builder::default()
@@ -616,9 +614,9 @@ fn test_task_exec_queue_with_priority_channel() {
                     quickly_completed_count1.fetch_add(1, Ordering::SeqCst);
                     log::info!("********** High priority: {:?}", 255);
                 }
-                    .spawn_with(&exec2, u8::MAX)
-                    .quickly()
-                    .await;
+                .spawn_with(&exec2, u8::MAX)
+                .quickly()
+                .await;
                 sleep(std::time::Duration::from_millis(5000)).await;
             }
         });
@@ -680,9 +678,9 @@ fn test_group() {
         let _res = async move {
             log::info!("[test_group] hello world!");
         }
-            .spawn(&exec)
-            .group("g1")
-            .await;
+        .spawn(&exec)
+        .group("g1")
+        .await;
 
         let res = async move { "hello world!" }
             .spawn(&exec)
