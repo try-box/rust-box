@@ -1,3 +1,6 @@
+use alloc::vec::Drain;
+use core::ops::RangeBounds;
+
 #[derive(Clone)]
 pub struct PriorityQueue<P, V> {
     data: Vec<(P, V)>,
@@ -49,6 +52,16 @@ impl<P: Ord, V> PriorityQueue<P, V> {
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, (P, V)> {
         self.data.iter()
+    }
+
+    #[inline]
+    pub fn into_iter(self) -> alloc::vec::IntoIter<(P, V)> {
+        self.data.into_iter()
+    }
+
+    #[inline]
+    pub fn drain<R>(&mut self) -> Drain<'_, (P, V)> {
+        self.data.drain(..)
     }
 
     #[inline]

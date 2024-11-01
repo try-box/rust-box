@@ -1,3 +1,6 @@
+use alloc::vec::Drain;
+use core::ops::RangeBounds;
+
 #[derive(Clone)]
 pub struct BinaryHeap<T> {
     data: Vec<T>,
@@ -50,6 +53,16 @@ impl<T: Ord> BinaryHeap<T> {
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, T> {
         self.data.iter()
+    }
+
+    #[inline]
+    pub fn into_iter(self) -> alloc::vec::IntoIter<T> {
+        self.data.into_iter()
+    }
+
+    #[inline]
+    pub fn drain<R>(&mut self) -> Drain<'_, T> {
+        self.data.drain(..)
     }
 
     #[inline]
