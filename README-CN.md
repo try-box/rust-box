@@ -34,7 +34,7 @@ The main `rust-box` crate just [re-exports](src/lib.rs) tools from smaller subcr
 
 ```toml
 [dependencies]
-rust-box = "0.11"
+rust-box = "0.12"
 ```
 
 ## 例子
