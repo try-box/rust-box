@@ -37,3 +37,7 @@ pub use collections;
 #[doc(inline)]
 #[cfg(feature = "counter")]
 pub use counter;
+
+#[doc(inline)]
+#[cfg(feature = "convert")]
+pub use convert;
