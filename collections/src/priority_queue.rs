@@ -1,5 +1,4 @@
 use alloc::vec::Drain;
-use core::ops::RangeBounds;
 
 #[derive(Clone)]
 pub struct PriorityQueue<P, V> {
@@ -52,11 +51,6 @@ impl<P: Ord, V> PriorityQueue<P, V> {
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, (P, V)> {
         self.data.iter()
-    }
-
-    #[inline]
-    pub fn into_iter(self) -> alloc::vec::IntoIter<(P, V)> {
-        self.data.into_iter()
     }
 
     #[inline]
@@ -161,6 +155,15 @@ impl<P: Ord, V> PriorityQueue<P, V> {
                 break;
             }
         }
+    }
+}
+
+impl<P, V> IntoIterator for PriorityQueue<P, V> {
+    type Item = (P, V);
+    type IntoIter = alloc::vec::IntoIter<(P, V)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
     }
 }
 

@@ -1,5 +1,4 @@
 use alloc::vec::Drain;
-use core::ops::RangeBounds;
 
 #[derive(Clone)]
 pub struct BinaryHeap<T> {
@@ -53,11 +52,6 @@ impl<T: Ord> BinaryHeap<T> {
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, T> {
         self.data.iter()
-    }
-
-    #[inline]
-    pub fn into_iter(self) -> alloc::vec::IntoIter<T> {
-        self.data.into_iter()
     }
 
     #[inline]
@@ -161,6 +155,15 @@ impl<T: Ord> BinaryHeap<T> {
                 break;
             }
         }
+    }
+}
+
+impl<T> IntoIterator for BinaryHeap<T> {
+    type Item = T;
+    type IntoIter = alloc::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
     }
 }
 
