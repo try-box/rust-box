@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use futures::channel::oneshot;
 use futures::StreamExt;
 use tonic::metadata::{Ascii, MetadataValue};
-use tonic::service::Interceptor;
+use tonic::service::{interceptor::InterceptedService, Interceptor};
 use tonic::transport::{self, Identity, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 
@@ -31,6 +31,8 @@ pub struct Server {
     tls: Option<TLS>,
     token: Option<String>,
     recv_chunks_timeout: Duration,
+    max_decoding_message_size: Option<usize>,
+    max_encoding_message_size: Option<usize>,
     reuseaddr: bool,
     reuseport: bool,
 }
@@ -42,6 +44,8 @@ pub fn server(laddr: SocketAddr, tx: TX) -> Server {
         tls: None,
         token: None,
         recv_chunks_timeout: RECV_CHUNKS_TIMEOUT,
+        max_decoding_message_size: None,
+        max_encoding_message_size: None,
         reuseaddr: true,
         reuseport: false,
     }
@@ -60,6 +64,16 @@ impl Server {
 
     pub fn recv_chunks_timeout(mut self, recv_chunks_timeout: Duration) -> Self {
         self.recv_chunks_timeout = recv_chunks_timeout;
+        self
+    }
+
+    pub fn max_decoding_message_size(mut self, max_decoding_message_size: usize) -> Self {
+        self.max_decoding_message_size = Some(max_decoding_message_size);
+        self
+    }
+
+    pub fn max_encoding_message_size(mut self, max_encoding_message_size: usize) -> Self {
+        self.max_encoding_message_size = Some(max_encoding_message_size);
         self
     }
 
@@ -103,10 +117,17 @@ impl Server {
         } else {
             None
         };
-        let service = DataTransferServer::with_interceptor(
-            DataTransferService::new(self.tx, self.recv_chunks_timeout),
-            AuthInterceptor { auth_token },
-        );
+
+        let mut service =
+            DataTransferServer::new(DataTransferService::new(self.tx, self.recv_chunks_timeout));
+        if let Some(limit) = self.max_decoding_message_size {
+            service = service.max_decoding_message_size(limit);
+        }
+        if let Some(limit) = self.max_encoding_message_size {
+            service = service.max_encoding_message_size(limit);
+        }
+
+        let service = InterceptedService::new(service, AuthInterceptor { auth_token });
 
         log::info!(
             "gRPC DataTransfer is listening on {}://{:?}",
