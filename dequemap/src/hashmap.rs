@@ -571,7 +571,7 @@ where
     }
 }
 
-impl<'a, K, V, S> DoubleEndedIterator for Iter<'a, K, V, S>
+impl<K, V, S> DoubleEndedIterator for Iter<'_, K, V, S>
 where
     K: Hash + Eq,
     S: BuildHasher,
@@ -585,7 +585,7 @@ where
     }
 }
 
-impl<'a, K, V, S> ExactSizeIterator for Iter<'a, K, V, S>
+impl<K, V, S> ExactSizeIterator for Iter<'_, K, V, S>
 where
     K: Hash + Eq,
     S: BuildHasher,
@@ -595,7 +595,7 @@ where
     }
 }
 
-impl<'a, K, V, S> FusedIterator for Iter<'a, K, V, S>
+impl<K, V, S> FusedIterator for Iter<'_, K, V, S>
 where
     K: Hash + Eq,
     S: BuildHasher,
@@ -769,7 +769,7 @@ where
     }
 }
 
-impl<'a, K, V, S> fmt::Debug for Entry<'a, K, V, S>
+impl<K, V, S> fmt::Debug for Entry<'_, K, V, S>
 where
     K: fmt::Debug + Hash,
     V: fmt::Debug,
@@ -816,7 +816,7 @@ where
     }
 }
 
-impl<'a, K, V, S> fmt::Debug for VacantEntry<'a, K, V, S>
+impl<K, V, S> fmt::Debug for VacantEntry<'_, K, V, S>
 where
     K: fmt::Debug + Hash,
 {
@@ -876,7 +876,7 @@ where
     }
 }
 
-impl<'a, K, V, S> fmt::Debug for OccupiedEntry<'a, K, V, S>
+impl<K, V, S> fmt::Debug for OccupiedEntry<'_, K, V, S>
 where
     K: fmt::Debug + Hash,
     V: fmt::Debug,

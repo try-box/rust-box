@@ -511,7 +511,7 @@ impl<'a, K: Ord, V> Iterator for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K: Ord, V> DoubleEndedIterator for Iter<'a, K, V> {
+impl<K: Ord, V> DoubleEndedIterator for Iter<'_, K, V> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(k) = self.inner.next_back() {
             self.entries.get(k).map(|v| (k, v))
@@ -521,13 +521,13 @@ impl<'a, K: Ord, V> DoubleEndedIterator for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K: Ord, V> ExactSizeIterator for Iter<'a, K, V> {
+impl<K: Ord, V> ExactSizeIterator for Iter<'_, K, V> {
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<'a, K: Ord, V> FusedIterator for Iter<'a, K, V> {}
+impl<K: Ord, V> FusedIterator for Iter<'_, K, V> {}
 
 pub struct IntoIter<K, V> {
     inner: DequeIntoIter<K>,
@@ -675,7 +675,7 @@ where
     }
 }
 
-impl<'a, K, V> fmt::Debug for Entry<'a, K, V>
+impl<K, V> fmt::Debug for Entry<'_, K, V>
 where
     K: fmt::Debug + Ord,
     V: fmt::Debug,
@@ -721,7 +721,7 @@ where
     }
 }
 
-impl<'a, K, V> fmt::Debug for VacantEntry<'a, K, V>
+impl<K, V> fmt::Debug for VacantEntry<'_, K, V>
 where
     K: fmt::Debug + Ord,
 {
@@ -781,7 +781,7 @@ where
     }
 }
 
-impl<'a, K, V> fmt::Debug for OccupiedEntry<'a, K, V>
+impl<K, V> fmt::Debug for OccupiedEntry<'_, K, V>
 where
     K: fmt::Debug + Ord,
     V: fmt::Debug,
