@@ -54,7 +54,7 @@ impl<P: Ord, V> PriorityQueue<P, V> {
     }
 
     #[inline]
-    pub fn drain<R>(&mut self) -> Drain<'_, (P, V)> {
+    pub fn drain(&mut self) -> Drain<'_, (P, V)> {
         self.data.drain(..)
     }
 
