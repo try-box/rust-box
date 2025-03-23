@@ -186,7 +186,7 @@ impl DataTransferService {
             priority: 0,
             total_chunks: 0,
             chunk_index: 0,
-            data: Vec::new(),
+            data: None,
         };
         Response::new(resp)
     }
@@ -232,7 +232,7 @@ impl DataTransfer for DataTransferService {
         let remote_addr = request.remote_addr();
         let req = request.into_inner();
         log::trace!("Request: {:?}", req);
-
+        let id = req.id;
         let (priority, data) =
             if let Some((priority, data)) = self.chunked_buffer.merge(req, remote_addr).await {
                 (priority, data)
@@ -255,11 +255,11 @@ impl DataTransfer for DataTransferService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let resp = transferpb::Message {
-            id: 0,
+            id,
             priority: 0,
             total_chunks: 0,
             chunk_index: 0,
-            data: res,
+            data: Some(res),
         };
         Ok(Response::new(resp))
     }
@@ -320,10 +320,12 @@ fn socket2_bind(
 
 #[allow(clippy::type_complexity)]
 struct ChunkedBuffer {
-    data_buffs: RwLock<
-        DequeBTreeMap<
-            (Option<SocketAddr>, Id),
-            (Instant, PriorityQueue<Reverse<u32>, transferpb::Message>),
+    data_buffses: Vec<
+        RwLock<
+            DequeBTreeMap<
+                (Option<SocketAddr>, Id),
+                (Instant, PriorityQueue<Reverse<u32>, transferpb::Message>),
+            >,
         >,
     >,
     recv_chunks_timeout: Duration,
@@ -331,8 +333,11 @@ struct ChunkedBuffer {
 
 impl ChunkedBuffer {
     fn new(recv_chunks_timeout: Duration) -> Self {
+        let data_buffses = (0..DATA_BUFFSES_MAX)
+            .map(|_| RwLock::new(DequeBTreeMap::default()))
+            .collect();
         ChunkedBuffer {
-            data_buffs: RwLock::new(DequeBTreeMap::default()),
+            data_buffses,
             recv_chunks_timeout,
         }
     }
@@ -344,11 +349,36 @@ impl ChunkedBuffer {
         remote_addr: Option<SocketAddr>,
     ) -> Option<(Priority, Vec<u8>)> {
         if req.total_chunks > 1 {
-            let mut data_buffs = self.data_buffs.write().await;
-            while let Some(true) = data_buffs
-                .front()
-                .map(|(_, (t, q))| q.is_empty() || t.elapsed() > self.recv_chunks_timeout)
+            let idx = req.id % DATA_BUFFSES_MAX;
+            let data_buffs = if let Some(data_buffs) = self.data_buffses.get(idx as usize) {
+                data_buffs
+            } else {
+                unreachable!();
+            };
+
+            let mut now = None;
+            let mut data_buffs = data_buffs.write().await;
+            while let Some((id, is_empty, is_timeout)) =
+                data_buffs.front().and_then(|((_, id), (t, q))| {
+                    let is_empty = q.is_empty();
+                    if now.is_none() {
+                        now = Some(Instant::now());
+                    };
+                    let is_timeout = if let Some(now) = &now {
+                        now.duration_since(*t) > self.recv_chunks_timeout
+                    } else {
+                        false
+                    };
+                    if is_empty || is_timeout {
+                        Some((*id, is_empty, is_timeout))
+                    } else {
+                        None
+                    }
+                })
             {
+                if !is_empty && is_timeout {
+                    log::warn!("Message merge timeout, message ID: {}", id)
+                }
                 data_buffs.pop_front();
             }
             let (_, data_buff) = data_buffs
@@ -359,19 +389,20 @@ impl ChunkedBuffer {
             data_buff.push(Reverse(req.chunk_index), req);
 
             if data_buff.len() >= total_chunks as usize {
-                let mut chunks = Vec::with_capacity(data_buff.len());
-                while let Some((_, msg)) = data_buff.pop() {
-                    chunks.push(msg.data);
-                }
-                Some((priority, chunks.into_iter().flatten().collect()))
+                let merged_data = data_buff
+                    .drain()
+                    .flat_map(|(_, msg)| msg.data.unwrap_or_default())
+                    .collect::<Vec<_>>();
+                Some((priority, merged_data))
             } else {
                 None
             }
         } else {
-            Some((req.priority, req.data))
+            Some((req.priority, req.data.unwrap_or_default()))
         }
     }
 }
 
 //Receive chunk data timeout
-const RECV_CHUNKS_TIMEOUT: Duration = Duration::from_secs(15);
+const RECV_CHUNKS_TIMEOUT: Duration = Duration::from_secs(30);
+const DATA_BUFFSES_MAX: u64 = 10;

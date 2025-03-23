@@ -1,10 +1,10 @@
+use anyhow::anyhow;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use anyhow::{Error, Result};
 use collections::PriorityQueue;
 use futures::{SinkExt, Stream};
 use mpsc::with_priority_channel;
@@ -17,7 +17,7 @@ use tonic::{metadata::MetadataValue, Request, Status};
 
 use super::transferpb::data_transfer_client::DataTransferClient;
 pub use super::transferpb::{self, Message};
-use super::{Id, Priority};
+use super::{Error, Id, Priority, Result};
 
 type SendError<T> = mpsc::SendError<T>;
 type Sender<T> = mpsc::Sender<T, SendError<T>>;
@@ -60,7 +60,7 @@ impl ClientBuilder {
         }
     }
 
-    pub async fn connect(self) -> Result<Client, Box<dyn std::error::Error>> {
+    pub async fn connect(self) -> Result<Client> {
         let inner = connect(
             self.addr.as_str(),
             self.concurrency_limit,
@@ -157,20 +157,27 @@ impl Client {
             let mut resp_data = None;
             for msg in split_into_chunks(data.as_slice(), p, chunk_size) {
                 let resp = c.send(tonic::Request::new(msg)).await.map_err(Error::new)?;
-                resp_data = Some(resp.into_inner().data);
+                let data = resp.into_inner().data;
+                if resp_data.is_none() && data.is_some() {
+                    resp_data = data;
+                }
             }
-            Ok(resp_data.unwrap_or_default())
+            if let Some(resp_data) = resp_data {
+                Ok(resp_data)
+            } else {
+                Err(anyhow!("Timeout"))
+            }
         } else {
             let msg = Message {
                 id: next_id(),
                 priority: p,
                 total_chunks: 0,
                 chunk_index: 0,
-                data,
+                data: Some(data),
             };
             let resp = c.send(tonic::Request::new(msg)).await.map_err(Error::new);
             let msg = resp?.into_inner();
-            Ok(msg.data)
+            Ok(msg.data.unwrap_or_default())
         }
     }
 
@@ -264,7 +271,7 @@ impl Mailbox {
                 priority: p,
                 total_chunks: 0,
                 chunk_index: 0,
-                data,
+                data: Some(data),
             };
             self.tx.send((p, msg)).await.map_err(Self::error)
         }
@@ -304,7 +311,7 @@ impl Mailbox {
                     priority: p,
                     total_chunks: 0,
                     chunk_index: 0,
-                    data,
+                    data: Some(data),
                 };
                 self.tx.start_send_unpin((p, msg)).map_err(Self::error)
             }
@@ -317,10 +324,12 @@ impl Mailbox {
     fn error(e: SendError<(Priority, Message)>) -> SendError<Vec<u8>> {
         if e.is_full() {
             e.into_inner()
-                .map(|(_, msg)| SendError::<Vec<u8>>::full(msg.data))
+                .map(|(_, msg)| SendError::<Vec<u8>>::full(msg.data.unwrap_or_default()))
                 .unwrap_or_else(|| SendError::<Vec<u8>>::disconnected(None))
         } else if e.is_disconnected() {
-            SendError::<Vec<u8>>::disconnected(e.into_inner().map(|(_, msg)| msg.data))
+            SendError::<Vec<u8>>::disconnected(
+                e.into_inner().map(|(_, msg)| msg.data.unwrap_or_default()),
+            )
         } else {
             SendError::<Vec<u8>>::disconnected(None)
         }
@@ -460,7 +469,7 @@ pub(crate) fn split_into_chunks(
             priority: p,
             total_chunks,
             chunk_index: i as u32,
-            data: chunk.into(),
+            data: Some(chunk.into()),
         })
         .collect()
 }

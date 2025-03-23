@@ -12,7 +12,7 @@ message Message {
   uint32 priority = 3;
   uint32 total_chunks = 5;
   uint32 chunk_index =7;
-  bytes data = 10;
+  optional bytes data = 10;
 }
 
 message Empty {
