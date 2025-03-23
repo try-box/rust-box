@@ -21,11 +21,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         let recv_data_fut = async move {
             while let Some((_, (data, reply_tx))) = rx.next().await {
-                if data.len() == 1024 * 1024 * 100 {
-                    log::info!("  ==> High priority message, data len 1024 * 1024 * 100",);
-                } else {
-                    log::trace!("  ==> req data len {}", data.len());
-                }
+                // if data.len() == 1024 * 1024 * 100 {
+                //     log::info!("  ==> High priority message, data len 1024 * 1024 * 100",);
+                // } else {
+                //     log::trace!("  ==> req data len {}", data.len());
+                // }
                 if let Some(reply_tx) = reply_tx {
                     if let Err(e) = reply_tx.send(Ok(data.len().to_be_bytes().to_vec())) {
                         log::error!("gRPC send result failure, {:?}", e);
@@ -37,7 +37,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         let run_receiver_fut = async move {
             loop {
-                if let Err(e) = server(laddr, tx.clone()).run().await {
+                if let Err(e) = server(laddr, tx.clone())
+                    .recv_chunks_timeout(Duration::from_secs(30))
+                    .run()
+                    .await
+                {
                     log::error!("Run gRPC receiver error, {:?}", e);
                 }
                 tokio::time::sleep(Duration::from_secs(3)).await;
