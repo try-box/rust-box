@@ -188,12 +188,12 @@ impl Client {
         let (tx, rx) = with_priority_channel(queue.clone(), queue_cap);
         let rx = Receiver::new(rx);
         let mailbox = Mailbox::new(tx, queue, queue_cap, self.builder.chunk_size);
-
+        let addr = self.builder.addr.clone();
         tokio::spawn(async move {
             loop {
                 let c = match this.connect().await {
                     Err(e) => {
-                        log::error!("gRPC connect failure, {:?}", e);
+                        log::warn!("gRPC connect failure, addr:{}, {}", addr, e.to_string());
                         tokio::time::sleep(Duration::from_secs(3)).await;
                         continue;
                     }
@@ -202,7 +202,11 @@ impl Client {
 
                 log::trace!("gRPC call transfer ... ");
                 if let Err(e) = c.transfer(Request::new(rx.clone())).await {
-                    log::error!("gRPC call transfer failure, {:?}", e);
+                    log::warn!(
+                        "gRPC call transfer failure, addr:{}, {}",
+                        addr,
+                        e.to_string()
+                    );
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     continue;
                 }

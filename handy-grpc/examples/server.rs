@@ -37,10 +37,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         let run_receiver_fut = async move {
             loop {
-                if let Err(e) = server(laddr, tx.clone())
-                    .recv_chunks_timeout(Duration::from_secs(30))
-                    .run()
-                    .await
+                if let Err(e) =
+                    server(laddr, tx.clone()).recv_chunks_timeout(Duration::from_secs(30)).run().await
                 {
                     log::error!("Run gRPC receiver error, {:?}", e);
                 }
