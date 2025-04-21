@@ -10,7 +10,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let addr = "[::1]:10000";
 
-    let mut c = Client::new(addr.into()).build().await;
+    // let mut c = Client::new(addr.into()).connect().await?;
+    let mut c = Client::new(addr.into()).connect_lazy()?;
 
     let send_result = c.send(vec![1, 2, 3, 4, 5]).await;
     log::info!("send result({:?})", send_result);
@@ -18,8 +19,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut mailbox = c.transfer_start(10_000).await;
 
     let _ = tokio::spawn(async move {
-        for _ in 0..10_000_000 {
-            let send_result = mailbox.send(vec![8].repeat(1024 * 1024)).await;
+        for _ in 0..50_000_000 {
+            let send_result = mailbox.send(vec![8].repeat(1024)).await;
             if send_result.is_err() {
                 log::info!("send result({:?})", send_result);
             }

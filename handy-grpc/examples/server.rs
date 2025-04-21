@@ -26,19 +26,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 // } else {
                 //     log::trace!("  ==> req data len {}", data.len());
                 // }
-                if let Some(reply_tx) = reply_tx {
-                    if let Err(e) = reply_tx.send(Ok(data.len().to_be_bytes().to_vec())) {
-                        log::error!("gRPC send result failure, {:?}", e);
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    if let Some(reply_tx) = reply_tx {
+                        if let Err(e) = reply_tx.send(Ok(data.len().to_be_bytes().to_vec())) {
+                            log::error!("gRPC send result failure, {:?}", e);
+                        }
                     }
-                }
+                });
             }
             log::error!("Recv None");
         };
 
         let run_receiver_fut = async move {
             loop {
-                if let Err(e) =
-                    server(laddr, tx.clone()).recv_chunks_timeout(Duration::from_secs(30)).run().await
+                if let Err(e) = server(laddr, tx.clone())
+                    .recv_chunks_timeout(Duration::from_secs(30))
+                    .run()
+                    .await
                 {
                     log::error!("Run gRPC receiver error, {:?}", e);
                 }
