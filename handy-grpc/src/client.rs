@@ -12,7 +12,7 @@ use parking_lot::RwLock;
 use tonic::codegen::InterceptedService;
 use tonic::metadata::Ascii;
 use tonic::service::Interceptor;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{metadata::MetadataValue, Request, Status};
 
 use super::transferpb::data_transfer_client::DataTransferClient;
@@ -29,7 +29,8 @@ type DataTransferClientType = DataTransferClient<InterceptedService<Channel, Aut
 pub struct ClientBuilder {
     addr: String,
     concurrency_limit: usize,
-    connect_timeout: Duration,
+    connect_timeout: Option<Duration>,
+    timeout: Option<Duration>,
     tls: bool,
     tls_ca: Option<String>,
     tls_domain: Option<String>,
@@ -42,7 +43,8 @@ impl Default for ClientBuilder {
         Self {
             addr: Default::default(),
             concurrency_limit: 10,
-            connect_timeout: Duration::from_secs(10),
+            connect_timeout: None,
+            timeout: None,
             tls: false,
             tls_ca: None,
             tls_domain: None,
@@ -53,18 +55,12 @@ impl Default for ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub async fn build(self) -> Client {
-        Client {
-            inner: None,
-            builder: Arc::new(self),
-        }
-    }
-
     pub async fn connect(self) -> Result<Client> {
         let inner = connect(
             self.addr.as_str(),
             self.concurrency_limit,
             self.connect_timeout,
+            self.timeout,
             self.tls,
             self.tls_ca.as_ref(),
             self.tls_domain.as_ref(),
@@ -72,7 +68,24 @@ impl ClientBuilder {
         )
         .await?;
         Ok(Client {
-            inner: Some(inner),
+            inner,
+            builder: Arc::new(self),
+        })
+    }
+
+    pub fn connect_lazy(self) -> Result<Client> {
+        let inner = connect_lazy(
+            self.addr.as_str(),
+            self.concurrency_limit,
+            self.connect_timeout,
+            self.timeout,
+            self.tls,
+            self.tls_ca.as_ref(),
+            self.tls_domain.as_ref(),
+            self.auth_token.clone(),
+        )?;
+        Ok(Client {
+            inner,
             builder: Arc::new(self),
         })
     }
@@ -83,7 +96,12 @@ impl ClientBuilder {
     }
 
     pub fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.connect_timeout = connect_timeout;
+        self.connect_timeout = Some(connect_timeout);
+        self
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
         self
     }
 
@@ -107,7 +125,7 @@ impl ClientBuilder {
 
 #[derive(Clone)]
 pub struct Client {
-    inner: Option<DataTransferClientType>,
+    inner: DataTransferClientType,
     builder: Arc<ClientBuilder>,
 }
 
@@ -122,25 +140,8 @@ impl Client {
     }
 
     #[inline]
-    async fn connect(&mut self) -> Result<&mut DataTransferClientType> {
-        if self.inner.is_none() {
-            let inner = connect(
-                self.builder.addr.as_str(),
-                self.builder.concurrency_limit,
-                self.builder.connect_timeout,
-                self.builder.tls,
-                self.builder.tls_ca.as_ref(),
-                self.builder.tls_domain.as_ref(),
-                self.builder.auth_token.clone(),
-            )
-            .await?;
-            self.inner = Some(inner);
-        }
-        if let Some(c) = self.inner.as_mut() {
-            Ok(c)
-        } else {
-            unreachable!()
-        }
+    fn connect(&mut self) -> &mut DataTransferClientType {
+        &mut self.inner
     }
 
     #[inline]
@@ -151,7 +152,7 @@ impl Client {
     #[inline]
     pub async fn send_priority(&mut self, data: Vec<u8>, p: Priority) -> Result<Vec<u8>> {
         let chunk_size = self.builder.chunk_size;
-        let c = self.connect().await?;
+        let c = self.connect();
         if data.len() > chunk_size {
             //chunked send
             let mut resp_data = None;
@@ -191,17 +192,8 @@ impl Client {
         let addr = self.builder.addr.clone();
         tokio::spawn(async move {
             loop {
-                let c = match this.connect().await {
-                    Err(e) => {
-                        log::warn!("gRPC connect failure, addr:{}, {}", addr, e.to_string());
-                        tokio::time::sleep(Duration::from_secs(3)).await;
-                        continue;
-                    }
-                    Ok(c) => c,
-                };
-
                 log::trace!("gRPC call transfer ... ");
-                if let Err(e) = c.transfer(Request::new(rx.clone())).await {
+                if let Err(e) = this.connect().transfer(Request::new(rx.clone())).await {
                     log::warn!(
                         "gRPC call transfer failure, addr:{}, {}",
                         addr,
@@ -355,16 +347,78 @@ impl Interceptor for AuthInterceptor {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[inline]
 async fn connect(
     addr: &str,
     concurrency_limit: usize,
-    connect_timeout: Duration,
+    connect_timeout: Option<Duration>,
+    timeout: Option<Duration>,
     tls: bool,
     tls_ca: Option<&String>,
     tls_domain: Option<&String>,
     token: Option<String>,
 ) -> Result<DataTransferClientType> {
+    let (endpoint, interceptor) = build_endpoint(
+        addr,
+        concurrency_limit,
+        connect_timeout,
+        timeout,
+        tls,
+        tls_ca,
+        tls_domain,
+        token,
+    )?;
+
+    //Connect
+    let channel = endpoint.connect().await?;
+
+    //Client
+    Ok(DataTransferClient::with_interceptor(channel, interceptor))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn connect_lazy(
+    addr: &str,
+    concurrency_limit: usize,
+    connect_timeout: Option<Duration>,
+    timeout: Option<Duration>,
+    tls: bool,
+    tls_ca: Option<&String>,
+    tls_domain: Option<&String>,
+    token: Option<String>,
+) -> Result<DataTransferClientType> {
+    let (endpoint, interceptor) = build_endpoint(
+        addr,
+        concurrency_limit,
+        connect_timeout,
+        timeout,
+        tls,
+        tls_ca,
+        tls_domain,
+        token,
+    )?;
+
+    //Connect lazy
+    let channel = endpoint.connect_lazy();
+
+    //Client
+    Ok(DataTransferClient::with_interceptor(channel, interceptor))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn build_endpoint(
+    addr: &str,
+    concurrency_limit: usize,
+    connect_timeout: Option<Duration>,
+    timeout: Option<Duration>,
+    tls: bool,
+    tls_ca: Option<&String>,
+    tls_domain: Option<&String>,
+    token: Option<String>,
+) -> Result<(Endpoint, AuthInterceptor)> {
     //TLS支持
     let tls_client_cfg = if tls {
         let mut tls_client_cfg = ClientTlsConfig::new();
@@ -399,22 +453,20 @@ async fn connect(
 
     //Endpoint
     let endpoint = Channel::from_shared(format!("http://{}", addr)).map(|endpoint| {
-        let endpoint = endpoint.concurrency_limit(concurrency_limit);
+        let mut endpoint = endpoint.concurrency_limit(concurrency_limit);
+        if let Some(connect_timeout) = connect_timeout {
+            endpoint = endpoint.connect_timeout(connect_timeout);
+        }
+        if let Some(timeout) = timeout {
+            endpoint = endpoint.timeout(timeout);
+        }
         if let Some(tls_client_cfg) = tls_client_cfg {
             endpoint.tls_config(tls_client_cfg)
         } else {
             Ok(endpoint)
         }
     })??;
-
-    //Connect
-    let channel = tokio::time::timeout(connect_timeout, endpoint.connect()).await??;
-
-    //Client
-    Ok(DataTransferClient::with_interceptor(
-        channel,
-        AuthInterceptor { auth_token },
-    ))
+    Ok((endpoint, AuthInterceptor { auth_token }))
 }
 
 #[derive(Clone)]
