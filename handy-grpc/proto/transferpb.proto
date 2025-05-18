@@ -4,6 +4,7 @@ package transferpb;
 
 service DataTransfer {
   rpc Transfer(stream Message) returns (Empty) {}
+  rpc DuplexTransfer(stream Message) returns (stream Message) {}
   rpc Send(Message) returns (Message) {}
 }
 
@@ -13,6 +14,7 @@ message Message {
   uint32 total_chunks = 5;
   uint32 chunk_index =7;
   optional bytes data = 10;
+  optional string err = 13;
 }
 
 message Empty {

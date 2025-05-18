@@ -17,20 +17,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // let laddr = "0.0.0.0:10001".parse().unwrap();
 
     let runner = async move {
-        let (tx, mut rx) = channel::<Priority, Message>(100_000);
+        let (tx, mut rx) = channel::<Priority, Message>(10_000);
 
         let recv_data_fut = async move {
             while let Some((_, (data, reply_tx))) = rx.next().await {
-                // if data.len() == 1024 * 1024 * 100 {
-                //     log::info!("  ==> High priority message, data len 1024 * 1024 * 100",);
-                // } else {
-                //     log::trace!("  ==> req data len {}", data.len());
-                // }
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    // tokio::time::sleep(Duration::from_millis(1)).await;
                     if let Some(reply_tx) = reply_tx {
-                        if let Err(e) = reply_tx.send(Ok(data.len().to_be_bytes().to_vec())) {
-                            log::error!("gRPC send result failure, {:?}", e);
+                        if let Err(e) = reply_tx.send(Ok(data)) {
+                            log::warn!("gRPC send result failure, {:?}", e.map(|d| d.len()));
                         }
                     }
                 });
@@ -42,6 +37,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             loop {
                 if let Err(e) = server(laddr, tx.clone())
                     .recv_chunks_timeout(Duration::from_secs(30))
+                    .chunk_size(1024 * 1024)
                     .run()
                     .await
                 {

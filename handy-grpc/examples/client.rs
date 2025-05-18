@@ -10,7 +10,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:10000";
 
     let mut c = Client::new(addr.into()).connect().await?;
-    let send_result = c.send(vec![1, 2, 3, 4, 5]).await;
+    let data = vec![8].repeat(1024 * 1024).repeat(10);
+    let send_result = c.send(data).await;
     log::info!("send result({:?})", send_result);
 
     Ok(())

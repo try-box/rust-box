@@ -1,6 +1,7 @@
 use handy_grpc::client::Client;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 // cargo run -r --example bench_client
 
@@ -11,12 +12,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let addr = "[::1]:10000";
 
-    let concurrency_limit = 128;
+    let concurrency_limit = 256;
 
     let runner = async move {
         let client = Client::new(addr.into())
             .concurrency_limit(concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
+            .timeout(Duration::from_millis(1_000))
             .connect_lazy()
             .unwrap();
         let timeouts = Arc::new(AtomicUsize::new(0));
@@ -25,25 +27,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let send = |mut c: Client, n: usize, timeouts: Arc<AtomicUsize>| async move {
                 let timeouts = timeouts.clone();
                 for _ in 0..n {
-                    // let data = vec![8].repeat(1024 * 1024).repeat(100);
-                    let data = vec![8].repeat(1024 * 10);
+                    // let data = vec![8].repeat(1024 * 1024).repeat(10);
+                    let data = vec![8].repeat(1024 * 1);
+                    let now = std::time::Instant::now();
                     let send_result = match c.send(data).await {
                         Ok(send_result) => send_result,
                         Err(e) => {
-                            log::warn!("send error({:?})", e);
+                            log::warn!("send error({:?})", e.to_string());
                             timeouts.fetch_add(1, Ordering::SeqCst);
                             continue;
                         }
                     };
-                    match send_result.as_slice().try_into() {
-                        Ok(res) => {
-                            log::debug!("send result({:?})", usize::from_be_bytes(res));
-                        }
-                        Err(_) => {
-                            log::info!("send result({:?})", send_result);
-                        }
+                    log::debug!("send_result: {}", send_result.len());
+                    if now.elapsed().as_millis() > 3000 {
+                        log::info!("call cost time: {:?}", now.elapsed());
                     }
-                    // break;
                 }
             };
 

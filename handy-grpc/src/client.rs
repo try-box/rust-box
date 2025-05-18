@@ -1,14 +1,16 @@
-use anyhow::anyhow;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use anyhow::anyhow;
 use collections::PriorityQueue;
-use futures::{SinkExt, Stream};
+use futures::{Stream, StreamExt};
 use mpsc::with_priority_channel;
 use parking_lot::RwLock;
+use scopeguard::defer;
+use tokio::sync::oneshot;
 use tonic::codegen::InterceptedService;
 use tonic::metadata::Ascii;
 use tonic::service::Interceptor;
@@ -17,14 +19,18 @@ use tonic::{metadata::MetadataValue, Request, Status};
 
 use super::transferpb::data_transfer_client::DataTransferClient;
 pub use super::transferpb::{self, Message};
-use super::{Error, Id, Priority, Result};
+use super::{
+    split_into_chunks, ChunkedBuffer, Error, Id, Priority, Result, CHUNK_SIZE_LIMIT,
+    RECV_CHUNKS_TIMEOUT,
+};
 
-type SendError<T> = mpsc::SendError<T>;
-type Sender<T> = mpsc::Sender<T, SendError<T>>;
+type Sender<T> = mpsc::Sender<T, mpsc::SendError<T>>;
 
 type PriorityQueueType = Arc<parking_lot::RwLock<PriorityQueue<Priority, Message>>>;
 
 type DataTransferClientType = DataTransferClient<InterceptedService<Channel, AuthInterceptor>>;
+
+type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 
 pub struct ClientBuilder {
     addr: String,
@@ -36,6 +42,7 @@ pub struct ClientBuilder {
     tls_domain: Option<String>,
     auth_token: Option<String>,
     chunk_size: usize,
+    recv_chunks_timeout: Duration,
 }
 
 impl Default for ClientBuilder {
@@ -50,6 +57,7 @@ impl Default for ClientBuilder {
             tls_domain: None,
             auth_token: None,
             chunk_size: CHUNK_SIZE_LIMIT,
+            recv_chunks_timeout: RECV_CHUNKS_TIMEOUT,
         }
     }
 }
@@ -121,6 +129,11 @@ impl ClientBuilder {
         self.chunk_size = chunk_size;
         self
     }
+
+    pub fn recv_chunks_timeout(mut self, recv_chunks_timeout: Duration) -> Self {
+        self.recv_chunks_timeout = recv_chunks_timeout;
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -144,6 +157,7 @@ impl Client {
         &mut self.inner
     }
 
+    //@TODO 使用双向流传输方式替换直接响应试传输数据
     #[inline]
     pub async fn send(&mut self, data: Vec<u8>) -> Result<Vec<u8>> {
         self.send_priority(data, Priority::MIN).await
@@ -151,13 +165,30 @@ impl Client {
 
     #[inline]
     pub async fn send_priority(&mut self, data: Vec<u8>, p: Priority) -> Result<Vec<u8>> {
+        if let Some(t) = self.builder.timeout {
+            tokio::time::timeout(t, self._send_priority(data, p)).await?
+        } else {
+            self._send_priority(data, p).await
+        }
+    }
+
+    #[inline]
+    async fn _send_priority(&mut self, data: Vec<u8>, p: Priority) -> Result<Vec<u8>> {
         let chunk_size = self.builder.chunk_size;
+        let timeout = self.builder.timeout;
         let c = self.connect();
         if data.len() > chunk_size {
             //chunked send
             let mut resp_data = None;
-            for msg in split_into_chunks(data.as_slice(), p, chunk_size) {
-                let resp = c.send(tonic::Request::new(msg)).await.map_err(Error::new)?;
+            for msg in split_into_chunks(next_id(), data.as_slice(), p, chunk_size) {
+                let req = if let Some(t) = timeout {
+                    let mut req = tonic::Request::new(msg);
+                    req.set_timeout(t);
+                    req
+                } else {
+                    tonic::Request::new(msg)
+                };
+                let resp = c.send(req).await.map_err(Error::new)?;
                 let data = resp.into_inner().data;
                 if resp_data.is_none() && data.is_some() {
                     resp_data = data;
@@ -175,20 +206,28 @@ impl Client {
                 total_chunks: 0,
                 chunk_index: 0,
                 data: Some(data),
+                ..Default::default()
             };
-            let resp = c.send(tonic::Request::new(msg)).await.map_err(Error::new);
+            let req = if let Some(t) = timeout {
+                let mut req = tonic::Request::new(msg);
+                req.set_timeout(t);
+                req
+            } else {
+                tonic::Request::new(msg)
+            };
+            let resp = c.send(req).await.map_err(Error::new);
             let msg = resp?.into_inner();
             Ok(msg.data.unwrap_or_default())
         }
     }
 
     #[inline]
-    pub async fn transfer_start(&mut self, queue_cap: usize) -> Mailbox {
+    pub async fn transfer_start(&mut self, req_queue_cap: usize) -> Mailbox {
         let mut this = self.clone();
-        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
-        let (tx, rx) = with_priority_channel(queue.clone(), queue_cap);
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, rx) = with_priority_channel(req_queue.clone(), req_queue_cap);
         let rx = Receiver::new(rx);
-        let mailbox = Mailbox::new(tx, queue, queue_cap, self.builder.chunk_size);
+        let mailbox = Mailbox::new(tx, req_queue, req_queue_cap, self.builder.chunk_size);
         let addr = self.builder.addr.clone();
         tokio::spawn(async move {
             loop {
@@ -213,35 +252,118 @@ impl Client {
         });
         mailbox
     }
+
+    #[inline]
+    pub async fn duplex_transfer_start(&mut self, queue_cap: usize) -> DuplexMailbox {
+        let mut this = self.clone();
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, req_rx) = with_priority_channel(req_queue.clone(), queue_cap);
+        let req_rx = Receiver::new(req_rx);
+
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (mut resp_tx, resp_rx) = with_priority_channel(resp_queue.clone(), queue_cap);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            queue_cap,
+            self.builder.chunk_size,
+            self.builder.recv_chunks_timeout,
+            self.builder.timeout,
+        );
+        let addr = self.builder.addr.clone();
+        tokio::spawn(async move {
+            'outer: loop {
+                log::trace!("gRPC call duplex transfer ... ");
+                match this
+                    .connect()
+                    .duplex_transfer(Request::new(req_rx.clone()))
+                    .await
+                {
+                    Err(e) => {
+                        log::warn!(
+                            "gRPC call duplex transfer failure, addr:{}, {}",
+                            addr,
+                            e.to_string()
+                        );
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                        continue;
+                    }
+                    Ok(resp) => {
+                        let mut resp_stream = resp.into_inner();
+                        while let Some(received) = resp_stream.next().await {
+                            match received {
+                                Err(e) => {
+                                    log::warn!(
+                                        "gRPC duplex transfer response stream recv failure, addr:{}, {}",
+                                        addr,
+                                        e.to_string()
+                                    );
+                                    tokio::time::sleep(Duration::from_secs(3)).await;
+                                    continue 'outer;
+                                }
+                                Ok(received) => {
+                                    if let Err(e) =
+                                        resp_tx.send((received.priority, received)).await
+                                    {
+                                        log::warn!(
+                                            "gRPC duplex transfer send response message failure, addr:{}, {}",
+                                            addr,
+                                            e.to_string()
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        log::warn!(
+                            "gRPC duplex transfer response stream recv None, addr:{}",
+                            addr,
+                        );
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                        continue;
+                    }
+                }
+            }
+        });
+        mailbox
+    }
 }
 
 #[derive(Clone)]
 pub struct Mailbox {
-    tx: Sender<(Priority, Message)>,
-    queue: PriorityQueueType,
-    queue_cap: usize,
+    req_tx: Sender<(Priority, Message)>,
+    req_queue: PriorityQueueType,
+    req_queue_cap: usize,
     chunk_size: usize,
 }
 
 impl Mailbox {
     #[inline]
     fn new(
-        tx: Sender<(Priority, Message)>,
-        queue: PriorityQueueType,
-        queue_cap: usize,
+        req_tx: Sender<(Priority, Message)>,
+        req_queue: PriorityQueueType,
+        req_queue_cap: usize,
         chunk_size: usize,
     ) -> Self {
         Self {
-            tx,
-            queue,
-            queue_cap,
+            req_tx,
+            req_queue,
+            req_queue_cap,
             chunk_size,
         }
     }
 
     #[inline]
-    pub fn queue_len(&self) -> usize {
-        self.queue.read().len()
+    pub fn req_queue_is_full(&self) -> bool {
+        self.req_queue_len() >= self.req_queue_cap
+    }
+
+    #[inline]
+    pub fn req_queue_len(&self) -> usize {
+        self.req_queue.read().len()
     }
 
     #[inline]
@@ -257,8 +379,8 @@ impl Mailbox {
     ) -> Result<(), SendError<Vec<u8>>> {
         if data.len() > self.chunk_size {
             //chunked transfer
-            for msg in split_into_chunks(data.as_slice(), p, self.chunk_size) {
-                self.tx.send((p, msg)).await.map_err(Self::error)?;
+            for msg in split_into_chunks(next_id(), data.as_slice(), p, self.chunk_size) {
+                self.req_tx.send((p, msg)).await.map_err(Self::error)?;
             }
             Ok(())
         } else {
@@ -268,8 +390,9 @@ impl Mailbox {
                 total_chunks: 0,
                 chunk_index: 0,
                 data: Some(data),
+                ..Default::default()
             };
-            self.tx.send((p, msg)).await.map_err(Self::error)
+            self.req_tx.send((p, msg)).await.map_err(Self::error)
         }
     }
 
@@ -279,45 +402,7 @@ impl Mailbox {
     }
 
     #[inline]
-    pub fn quick_try_send(&mut self, data: Vec<u8>) -> Result<(), SendError<Vec<u8>>> {
-        self.try_send_priority(data, Priority::MAX)
-    }
-
-    #[inline]
-    pub fn try_send(&mut self, data: Vec<u8>) -> Result<(), SendError<Vec<u8>>> {
-        self.try_send_priority(data, Priority::MIN)
-    }
-
-    #[inline]
-    pub fn try_send_priority(
-        &mut self,
-        data: Vec<u8>,
-        p: Priority,
-    ) -> Result<(), SendError<Vec<u8>>> {
-        if self.queue_len() < self.queue_cap {
-            if data.len() > self.chunk_size {
-                //chunked transfer
-                for msg in split_into_chunks(data.as_slice(), p, self.chunk_size) {
-                    self.tx.start_send_unpin((p, msg)).map_err(Self::error)?;
-                }
-                Ok(())
-            } else {
-                let msg = Message {
-                    id: next_id(),
-                    priority: p,
-                    total_chunks: 0,
-                    chunk_index: 0,
-                    data: Some(data),
-                };
-                self.tx.start_send_unpin((p, msg)).map_err(Self::error)
-            }
-        } else {
-            Err(SendError::<Vec<u8>>::full(data))
-        }
-    }
-
-    #[inline]
-    fn error(e: SendError<(Priority, Message)>) -> SendError<Vec<u8>> {
+    fn error(e: mpsc::SendError<(Priority, Message)>) -> SendError<Vec<u8>> {
         if e.is_full() {
             e.into_inner()
                 .map(|(_, msg)| SendError::<Vec<u8>>::full(msg.data.unwrap_or_default()))
@@ -328,6 +413,192 @@ impl Mailbox {
             )
         } else {
             SendError::<Vec<u8>>::disconnected(None)
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DuplexMailbox {
+    req_tx: Sender<(Priority, Message)>,
+    req_queue: PriorityQueueType,
+    resp_queue: PriorityQueueType,
+    resp_senders: Arc<DashMap<Id, oneshot::Sender<Result<Vec<u8>>>>>,
+    queue_cap: usize,
+    chunk_size: usize,
+    timeout: Option<Duration>,
+}
+
+#[allow(clippy::too_many_arguments)]
+impl DuplexMailbox {
+    #[inline]
+    fn new(
+        req_tx: Sender<(Priority, Message)>,
+        resp_rx: Receiver,
+        req_queue: PriorityQueueType,
+        resp_queue: PriorityQueueType,
+        queue_cap: usize,
+        chunk_size: usize,
+        recv_chunks_timeout: Duration,
+        timeout: Option<Duration>,
+    ) -> Self {
+        let resp_chunked_buffer = ChunkedBuffer::new(recv_chunks_timeout);
+        Self {
+            req_tx,
+            req_queue,
+            resp_queue,
+            resp_senders: Arc::new(DashMap::default()),
+            queue_cap,
+            chunk_size,
+            timeout,
+        }
+        .start(resp_rx, resp_chunked_buffer)
+    }
+
+    fn start(self, mut resp_rx: Receiver, resp_chunked_buffer: ChunkedBuffer) -> Self {
+        let resp_senders = self.resp_senders.clone();
+        tokio::spawn(async move {
+            let mut removed_ids = Vec::new();
+            while let Some(mut msg) = resp_rx.next().await {
+                if let Some(err) = msg.err.take() {
+                    if let Some((_, resp_sender)) = resp_senders.remove(&msg.id) {
+                        if !resp_sender.is_closed() {
+                            if let Err(e) = resp_sender.send(Err(anyhow!(err))) {
+                                log::warn!("response sender send fail, {:?}", e);
+                            }
+                        } else {
+                            log::warn!("response sender is closed");
+                        }
+                    }
+                    continue;
+                }
+
+                let msg = resp_chunked_buffer
+                    .merge(msg, None, Some(&mut removed_ids))
+                    .await;
+
+                if !removed_ids.is_empty() {
+                    for removed_id in removed_ids.drain(..) {
+                        log::debug!("removed_id: {}", removed_id);
+                        resp_senders.remove(&removed_id);
+                    }
+                }
+
+                let (id, data) = if let Some((id, _, data)) = msg {
+                    (id, data)
+                } else {
+                    continue;
+                };
+
+                if let Some((_, resp_sender)) = resp_senders.remove(&id) {
+                    if !resp_sender.is_closed() {
+                        if let Err(e) = resp_sender.send(Ok(data)) {
+                            log::warn!("response sender send fail, {:?}", e);
+                        }
+                    } else {
+                        log::warn!("response sender is closed");
+                    }
+                }
+            }
+            log::info!("exit response Receiver");
+        });
+        self
+    }
+
+    #[inline]
+    pub fn req_queue_is_full(&self) -> bool {
+        self.req_queue_len() >= self.queue_cap
+    }
+
+    #[inline]
+    pub fn req_queue_len(&self) -> usize {
+        self.req_queue.read().len()
+    }
+
+    #[inline]
+    pub fn resp_queue_len(&self) -> usize {
+        self.resp_queue.read().len()
+    }
+
+    #[inline]
+    pub fn resp_senders_len(&self) -> usize {
+        self.resp_senders.len()
+    }
+
+    #[inline]
+    pub async fn send(&mut self, data: Vec<u8>) -> Result<Vec<u8>, SendError<Option<Vec<u8>>>> {
+        self.send_priority(data, Priority::MIN).await
+    }
+
+    #[inline]
+    pub async fn send_priority(
+        &mut self,
+        data: Vec<u8>,
+        p: Priority,
+    ) -> Result<Vec<u8>, SendError<Option<Vec<u8>>>> {
+        let (res_tx, res_rx) = oneshot::channel::<Result<Vec<u8>>>();
+        let id = next_id();
+        let resp_senders = self.resp_senders.clone();
+        resp_senders.insert(id, res_tx);
+        defer! {
+            resp_senders.remove(&id);
+        }
+        self._send_priority(id, data, p, res_rx).await
+    }
+    #[inline]
+    async fn _send_priority(
+        &mut self,
+        id: Id,
+        data: Vec<u8>,
+        p: Priority,
+        res_rx: oneshot::Receiver<Result<Vec<u8>>>,
+    ) -> Result<Vec<u8>, SendError<Option<Vec<u8>>>> {
+        if data.len() > self.chunk_size {
+            //chunked transfer
+            for msg in split_into_chunks(id, data.as_slice(), p, self.chunk_size) {
+                self.req_tx.send((p, msg)).await.map_err(Self::error)?;
+            }
+        } else {
+            let msg = Message {
+                id,
+                priority: p,
+                total_chunks: 0,
+                chunk_index: 0,
+                data: Some(data),
+                ..Default::default()
+            };
+            self.req_tx.send((p, msg)).await.map_err(Self::error)?;
+        }
+
+        let res = tokio::time::timeout(
+            self.timeout.unwrap_or_else(|| Duration::from_secs(120)),
+            res_rx,
+        )
+        .await
+        .map_err(|e| SendError::error(e.to_string(), None))?
+        .map_err(|e| SendError::error(e.to_string(), None))?
+        .map_err(|e| SendError::error(e.to_string(), None))?;
+
+        Ok(res)
+    }
+
+    #[inline]
+    pub async fn quick_send(
+        &mut self,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, SendError<Option<Vec<u8>>>> {
+        self.send_priority(data, Priority::MAX).await
+    }
+
+    #[inline]
+    fn error(e: mpsc::SendError<(Priority, Message)>) -> SendError<Option<Vec<u8>>> {
+        if e.is_full() {
+            e.into_inner()
+                .map(|(_, msg)| SendError::<Option<Vec<u8>>>::full(msg.data))
+                .unwrap_or_else(|| SendError::<Option<Vec<u8>>>::disconnected(None))
+        } else if e.is_disconnected() {
+            SendError::<Option<Vec<u8>>>::disconnected(e.into_inner().map(|(_, msg)| msg.data))
+        } else {
+            SendError::<Option<Vec<u8>>>::disconnected(None)
         }
     }
 }
@@ -508,26 +779,80 @@ pub(crate) fn next_id() -> Id {
     id_generator.fetch_add(1, Ordering::SeqCst)
 }
 
-#[inline]
-pub(crate) fn split_into_chunks(
-    data: &[u8],
-    p: Priority,
-    chunk_size: usize,
-) -> Vec<transferpb::Message> {
-    let id = next_id();
-    let chunks: Vec<_> = data.chunks(chunk_size).collect();
-    let total_chunks = chunks.len() as u32;
-    chunks
-        .into_iter()
-        .enumerate()
-        .map(|(i, chunk)| transferpb::Message {
-            id,
-            priority: p,
-            total_chunks,
-            chunk_index: i as u32,
-            data: Some(chunk.into()),
-        })
-        .collect()
+#[derive(Clone, PartialEq, Eq)]
+pub enum SendError<T> {
+    SendError(mpsc::SendError<T>),
+    Error(String, Option<T>),
 }
 
-const CHUNK_SIZE_LIMIT: usize = 1024 * 1024;
+impl<T> SendError<T> {
+    #[inline]
+    pub fn full(val: T) -> Self {
+        SendError::SendError(mpsc::SendError::full(val))
+    }
+
+    #[inline]
+    pub fn disconnected(val: Option<T>) -> Self {
+        SendError::SendError(mpsc::SendError::disconnected(val))
+    }
+
+    #[inline]
+    pub fn error(e: String, val: Option<T>) -> Self {
+        SendError::Error(e, val)
+    }
+}
+
+impl<T> core::fmt::Display for SendError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SendError::SendError(e) => {
+                write!(f, "{:?}", e)
+            }
+            SendError::Error(e, _) => {
+                write!(f, "{:?}", e)
+            }
+        }
+    }
+}
+
+impl<T> core::fmt::Debug for SendError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SendError::SendError(e) => f.debug_struct("SendError").field("reason", e).finish(),
+            SendError::Error(e, _) => f.debug_struct("SendError").field("reason", e).finish(),
+        }
+    }
+}
+
+impl<T> SendError<T> {
+    /// Returns `true` if this error is a result of the mpsc being full.
+    #[inline]
+    pub fn is_full(&self) -> bool {
+        if let SendError::SendError(e) = self {
+            e.is_full()
+        } else {
+            false
+        }
+    }
+
+    /// Returns `true` if this error is a result of the receiver being dropped.
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        if let SendError::SendError(e) = self {
+            e.is_disconnected()
+        } else {
+            false
+        }
+    }
+
+    /// Returns the message that was attempted to be sent but failed.
+    #[inline]
+    pub fn into_inner(self) -> Option<T> {
+        match self {
+            SendError::SendError(inner) => inner.into_inner(),
+            SendError::Error(_, val) => val,
+        }
+    }
+}
+
+impl<T: core::any::Any> std::error::Error for SendError<T> {}

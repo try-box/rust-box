@@ -1,25 +1,28 @@
-use std::cmp::Reverse;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::pin::Pin;
+use std::time::Duration;
 
 use futures::channel::oneshot;
-use futures::StreamExt;
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::{interceptor::InterceptedService, Interceptor};
 use tonic::transport::{self, Identity, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+
 use anyhow::{Error, Result};
-use collections::PriorityQueue;
-use dequemap::DequeBTreeMap;
-use tokio::sync::RwLock;
 
 #[cfg(feature = "rate")]
 use rate::Counter;
 
 use super::transferpb::data_transfer_server::{DataTransfer, DataTransferServer};
 use super::transferpb::{self, Empty};
-use super::{Id, Priority};
+use super::{
+    split_into_chunks, ChunkedBuffer, Id, Priority, CHUNK_SIZE_LIMIT, RECV_CHUNKS_TIMEOUT,
+};
+
+type ResponseStream = Pin<Box<dyn Stream<Item = Result<transferpb::Message, Status>> + Send>>;
+type SendResult<T> = Result<Response<T>, Status>;
 
 type TX = mpsc::Sender<(Priority, Message), mpsc::SendError<(Priority, Message)>>;
 
@@ -35,6 +38,7 @@ pub struct Server {
     max_encoding_message_size: Option<usize>,
     reuseaddr: bool,
     reuseport: bool,
+    chunk_size: usize,
 }
 
 pub fn server(laddr: SocketAddr, tx: TX) -> Server {
@@ -48,6 +52,7 @@ pub fn server(laddr: SocketAddr, tx: TX) -> Server {
         max_encoding_message_size: None,
         reuseaddr: true,
         reuseport: false,
+        chunk_size: CHUNK_SIZE_LIMIT,
     }
 }
 
@@ -87,6 +92,11 @@ impl Server {
         self
     }
 
+    pub fn chunk_size(mut self, chunk_size: usize) -> Self {
+        self.chunk_size = chunk_size;
+        self
+    }
+
     pub async fn run(self) -> Result<()> {
         let mut builder = transport::Server::builder();
 
@@ -118,8 +128,11 @@ impl Server {
             None
         };
 
-        let mut service =
-            DataTransferServer::new(DataTransferService::new(self.tx, self.recv_chunks_timeout));
+        let mut service = DataTransferServer::new(DataTransferService::new(
+            self.tx,
+            self.recv_chunks_timeout,
+            self.chunk_size,
+        ));
         if let Some(limit) = self.max_decoding_message_size {
             service = service.max_decoding_message_size(limit);
         }
@@ -135,10 +148,11 @@ impl Server {
             self.laddr
         );
 
+        #[allow(unused_variables)]
         let server = builder.add_service(service);
 
         #[cfg(any(feature = "reuseport", feature = "reuseaddr"))]
-        #[cfg(all(feature = "socket2", feature = "tokio-stream"))]
+        #[cfg(feature = "socket2")]
         {
             let listener = socket2_bind(self.laddr, 1024, self.reuseaddr, self.reuseport)?;
             server.serve_with_incoming(listener).await?;
@@ -155,10 +169,12 @@ pub struct DataTransferService {
     counter: Counter,
     tx: TX,
     chunked_buffer: ChunkedBuffer,
+    chunk_size: usize,
+    recv_chunks_timeout: Duration,
 }
 
 impl DataTransferService {
-    pub fn new(tx: TX, recv_chunks_timeout: Duration) -> Self {
+    pub fn new(tx: TX, recv_chunks_timeout: Duration, chunk_size: usize) -> Self {
         #[cfg(feature = "rate")]
         let counter = Counter::new(std::time::Duration::from_secs(5));
         #[cfg(feature = "rate_print")]
@@ -176,17 +192,15 @@ impl DataTransferService {
             counter,
             tx,
             chunked_buffer: ChunkedBuffer::new(recv_chunks_timeout),
+            chunk_size,
+            recv_chunks_timeout,
         }
     }
 
     #[inline]
     fn chunk_empty_result() -> Response<transferpb::Message> {
         let resp = transferpb::Message {
-            id: 0,
-            priority: 0,
-            total_chunks: 0,
-            chunk_index: 0,
-            data: None,
+            ..Default::default()
         };
         Response::new(resp)
     }
@@ -206,16 +220,16 @@ impl DataTransfer for DataTransferService {
             log::trace!("Request: {:?}", req);
             let req = req?;
 
-            let (priority, data) =
-                if let Some((priority, data)) = self.chunked_buffer.merge(req, remote_addr).await {
-                    (priority, data)
-                } else {
-                    continue;
-                };
+            let (priority, data) = if let Some((_, priority, data)) =
+                self.chunked_buffer.merge(req, remote_addr, None).await
+            {
+                (priority, data)
+            } else {
+                continue;
+            };
 
             #[cfg(feature = "rate")]
             self.counter.inc();
-
             tx.send((priority, (data, None)))
                 .await
                 .map_err(|e| Status::cancelled(e.to_string()))?;
@@ -233,12 +247,13 @@ impl DataTransfer for DataTransferService {
         let req = request.into_inner();
         log::trace!("Request: {:?}", req);
         let id = req.id;
-        let (priority, data) =
-            if let Some((priority, data)) = self.chunked_buffer.merge(req, remote_addr).await {
-                (priority, data)
-            } else {
-                return Ok(Self::chunk_empty_result());
-            };
+        let (priority, data) = if let Some((_, priority, data)) =
+            self.chunked_buffer.merge(req, remote_addr, None).await
+        {
+            (priority, data)
+        } else {
+            return Ok(Self::chunk_empty_result());
+        };
 
         #[cfg(feature = "rate")]
         self.counter.inc();
@@ -256,12 +271,103 @@ impl DataTransfer for DataTransferService {
 
         let resp = transferpb::Message {
             id,
-            priority: 0,
-            total_chunks: 0,
-            chunk_index: 0,
             data: Some(res),
+            ..Default::default()
         };
         Ok(Response::new(resp))
+    }
+
+    type DuplexTransferStream = ResponseStream;
+
+    #[inline]
+    async fn duplex_transfer(
+        &self,
+        request: tonic::Request<tonic::Streaming<transferpb::Message>>,
+    ) -> SendResult<Self::DuplexTransferStream> {
+        let remote_addr = request.remote_addr();
+        let tx = self.tx.clone();
+        let mut stream = request.into_inner();
+        let (resp_tx, resp_rx) =
+            tokio::sync::mpsc::channel::<Result<transferpb::Message, Status>>(100_000);
+
+        let recv_chunks_timeout = self.recv_chunks_timeout;
+        let chunk_size = self.chunk_size;
+        #[cfg(feature = "rate")]
+        let counter = self.counter.clone();
+        tokio::spawn(async move {
+            let chunked_buffer = ChunkedBuffer::new(recv_chunks_timeout);
+            while let Some(req) = stream.next().await {
+                log::trace!("Request: {:?}", req);
+
+                let req = match req {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log::debug!("request error, {:?}", e);
+                        break;
+                    }
+                };
+
+                let (id, priority, data) = if let Some((id, priority, data)) =
+                    chunked_buffer.merge(req, remote_addr, None).await
+                {
+                    (id, priority, data)
+                } else {
+                    continue;
+                };
+
+                #[cfg(feature = "rate")]
+                counter.inc();
+
+                let mut tx = tx.clone();
+                let resp_tx = resp_tx.clone();
+                tokio::spawn(async move {
+                    let (res_tx, res_rx) = oneshot::channel();
+                    if let Err(e) = tx.send((priority, (data, Some(res_tx)))).await {
+                        resp_send_error(resp_tx, id, e.to_string()).await;
+                    } else {
+                        let res = res_rx.await;
+                        match res {
+                            Err(e) => {
+                                resp_send_error(resp_tx, id, e.to_string()).await;
+                            }
+                            Ok(Err(e)) => {
+                                resp_send_error(resp_tx, id, e.to_string()).await;
+                            }
+                            Ok(Ok(data)) => {
+                                for resp in
+                                    split_into_chunks(id, data.as_slice(), priority, chunk_size)
+                                {
+                                    if let Err(e) = resp_tx.send(Ok(resp)).await {
+                                        log::warn!("send response result error, {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        let out_stream = ReceiverStream::new(resp_rx);
+
+        Ok(Response::new(
+            Box::pin(out_stream) as Self::DuplexTransferStream
+        ))
+    }
+}
+
+async fn resp_send_error<E: Into<String>>(
+    resp_tx: tokio::sync::mpsc::Sender<Result<transferpb::Message, Status>>,
+    id: Id,
+    err: E,
+) {
+    let resp = transferpb::Message {
+        id,
+        err: Some(err.into()),
+        ..Default::default()
+    };
+    if let Err(e) = resp_tx.send(Ok(resp)).await {
+        log::warn!("send response result error, {}", e);
     }
 }
 
@@ -294,7 +400,8 @@ impl Interceptor for AuthInterceptor {
 }
 
 #[inline]
-#[cfg(all(feature = "socket2", feature = "tokio-stream"))]
+#[cfg(feature = "socket2")]
+#[allow(dead_code)]
 fn socket2_bind(
     laddr: std::net::SocketAddr,
     backlog: i32,
@@ -317,92 +424,3 @@ fn socket2_bind(
     );
     Ok(listener)
 }
-
-#[allow(clippy::type_complexity)]
-struct ChunkedBuffer {
-    data_buffses: Vec<
-        RwLock<
-            DequeBTreeMap<
-                (Option<SocketAddr>, Id),
-                (Instant, PriorityQueue<Reverse<u32>, transferpb::Message>),
-            >,
-        >,
-    >,
-    recv_chunks_timeout: Duration,
-}
-
-impl ChunkedBuffer {
-    fn new(recv_chunks_timeout: Duration) -> Self {
-        let data_buffses = (0..DATA_BUFFSES_MAX)
-            .map(|_| RwLock::new(DequeBTreeMap::default()))
-            .collect();
-        ChunkedBuffer {
-            data_buffses,
-            recv_chunks_timeout,
-        }
-    }
-
-    #[inline]
-    async fn merge(
-        &self,
-        req: transferpb::Message,
-        remote_addr: Option<SocketAddr>,
-    ) -> Option<(Priority, Vec<u8>)> {
-        if req.total_chunks > 1 {
-            let idx = req.id % DATA_BUFFSES_MAX;
-            let data_buffs = if let Some(data_buffs) = self.data_buffses.get(idx as usize) {
-                data_buffs
-            } else {
-                unreachable!();
-            };
-
-            let mut now = None;
-            let mut data_buffs = data_buffs.write().await;
-            while let Some((id, is_empty, is_timeout)) =
-                data_buffs.front().and_then(|((_, id), (t, q))| {
-                    let is_empty = q.is_empty();
-                    if now.is_none() {
-                        now = Some(Instant::now());
-                    };
-                    let is_timeout = if let Some(now) = &now {
-                        now.duration_since(*t) > self.recv_chunks_timeout
-                    } else {
-                        false
-                    };
-                    if is_empty || is_timeout {
-                        Some((*id, is_empty, is_timeout))
-                    } else {
-                        None
-                    }
-                })
-            {
-                if !is_empty && is_timeout {
-                    log::warn!("Message merge timeout, message ID: {}", id)
-                }
-                data_buffs.pop_front();
-            }
-            let (_, data_buff) = data_buffs
-                .entry((remote_addr, req.id))
-                .or_insert_with(|| (Instant::now(), PriorityQueue::default()));
-            let total_chunks = req.total_chunks;
-            let priority = req.priority;
-            data_buff.push(Reverse(req.chunk_index), req);
-
-            if data_buff.len() >= total_chunks as usize {
-                let merged_data = data_buff
-                    .drain()
-                    .flat_map(|(_, msg)| msg.data.unwrap_or_default())
-                    .collect::<Vec<_>>();
-                Some((priority, merged_data))
-            } else {
-                None
-            }
-        } else {
-            Some((req.priority, req.data.unwrap_or_default()))
-        }
-    }
-}
-
-//Receive chunk data timeout
-const RECV_CHUNKS_TIMEOUT: Duration = Duration::from_secs(30);
-const DATA_BUFFSES_MAX: u64 = 10;
