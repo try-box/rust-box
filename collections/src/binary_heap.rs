@@ -1,8 +1,20 @@
-use alloc::vec::Drain;
+use core::ops::{Deref, DerefMut};
 
 #[derive(Clone)]
-pub struct BinaryHeap<T> {
-    data: Vec<T>,
+pub struct BinaryHeap<T>(alloc::collections::BinaryHeap<T>);
+
+impl<T> Deref for BinaryHeap<T> {
+    type Target = alloc::collections::BinaryHeap<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for BinaryHeap<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl<T: Ord> Default for BinaryHeap<T> {
@@ -12,158 +24,36 @@ impl<T: Ord> Default for BinaryHeap<T> {
     }
 }
 
-impl<T> From<Vec<T>> for BinaryHeap<T> {
+impl<T: Ord> From<Vec<T>> for BinaryHeap<T> {
     #[inline]
     fn from(data: Vec<T>) -> Self {
-        BinaryHeap { data }
+        BinaryHeap(alloc::collections::BinaryHeap::from(data))
     }
 }
 
 impl<T: Ord> BinaryHeap<T> {
     #[inline]
     pub fn new() -> Self {
-        BinaryHeap { data: Vec::new() }
+        BinaryHeap(alloc::collections::BinaryHeap::new())
     }
 
     #[inline]
-    pub fn push(&mut self, value: T) {
-        self.data.push(value);
-        self.heapify_up(self.data.len() - 1);
+    pub fn iter_sorted(&self) -> alloc::vec::IntoIter<&T> {
+        let mut refs: Vec<_> = self.0.iter().collect();
+        refs.sort_by(|a, b| b.cmp(a));
+        refs.into_iter()
     }
 
     #[inline]
-    pub fn peek(&self) -> Option<&T> {
-        self.data.first()
+    pub fn drain_sorted(&mut self) -> impl Iterator<Item = T> {
+        let mut items = self.0.drain().collect::<Vec<_>>();
+        items.sort_by(|a, b| b.cmp(a));
+        items.into_iter()
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<T> {
-        if self.data.is_empty() {
-            return None;
-        }
-
-        let len = self.data.len();
-        self.data.swap(0, len - 1);
-        let result = self.data.pop();
-        self.heapify_down(0);
-        result
-    }
-
-    #[inline]
-    pub fn iter(&self) -> core::slice::Iter<'_, T> {
-        self.data.iter()
-    }
-
-    #[inline]
-    pub fn drain<R>(&mut self) -> Drain<'_, T> {
-        self.data.drain(..)
-    }
-
-    #[inline]
-    pub fn shrink_to_fit(&mut self) {
-        self.data.shrink_to_fit()
-    }
-
-    #[inline]
-    pub fn shrink_to(&mut self, min_capacity: usize) {
-        self.data.shrink_to(min_capacity)
-    }
-
-    #[inline]
-    pub fn retain<F>(&mut self, f: F)
-    where
-        F: FnMut(&T) -> bool,
-    {
-        self.data.retain(f);
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.data.clear();
-    }
-
-    #[inline]
-    pub fn append(&mut self, other: &mut Self) {
-        for item in other.data.drain(..) {
-            self.push(item);
-        }
-    }
-
-    #[inline]
-    pub fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        for item in iter {
-            self.push(item);
-        }
-    }
-
-    #[inline]
-    pub fn to_vec(&self) -> Vec<T>
-    where
-        T: Clone,
-    {
-        self.data.to_vec()
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    #[inline]
-    pub fn capacity(&self) -> usize {
-        self.data.capacity()
-    }
-
-    #[inline]
-    fn heapify_up(&mut self, mut index: usize) {
-        while index > 0 {
-            let parent_index = (index - 1) / 2;
-            if self.data[index] > self.data[parent_index] {
-                self.data.swap(index, parent_index);
-                index = parent_index;
-            } else {
-                break;
-            }
-        }
-    }
-
-    #[inline]
-    fn heapify_down(&mut self, mut index: usize) {
-        let len = self.data.len();
-        while index < len {
-            let left_child_index = 2 * index + 1;
-            let right_child_index = 2 * index + 2;
-            let mut largest = index;
-
-            if left_child_index < len && self.data[left_child_index] > self.data[largest] {
-                largest = left_child_index;
-            }
-
-            if right_child_index < len && self.data[right_child_index] > self.data[largest] {
-                largest = right_child_index;
-            }
-
-            if largest != index {
-                self.data.swap(index, largest);
-                index = largest;
-            } else {
-                break;
-            }
-        }
-    }
-}
-
-impl<T> IntoIterator for BinaryHeap<T> {
-    type Item = T;
-    type IntoIter = alloc::vec::IntoIter<T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.data.into_iter()
+    pub fn into_sorted_vec(self) -> Vec<T> {
+        self.0.into_sorted_vec()
     }
 }
 
@@ -176,7 +66,7 @@ where
     where
         T: serde::ser::Serializer,
     {
-        serializer.collect_seq(self.data.iter())
+        serializer.collect_seq(self.0.iter())
     }
 }
 
@@ -218,7 +108,7 @@ where
 }
 
 #[test]
-fn test_dinaryheap_serde() {
+fn test_serde() {
     use alloc::vec::Vec;
 
     fn into_vec(map: &mut BinaryHeap<u8>) -> Vec<u8> {
@@ -239,4 +129,43 @@ fn test_dinaryheap_serde() {
     let data = bincode::serialize(&map).unwrap();
     let mut map: BinaryHeap<u8> = bincode::deserialize(&data).unwrap();
     assert_eq!(into_vec(&mut map), [9, 5, 3, 2, 1]);
+}
+
+#[test]
+fn test_iter_sorted() {
+    let mut map: BinaryHeap<u8> = BinaryHeap::new();
+    map.push(2);
+    map.push(1);
+    map.push(9);
+    map.push(3);
+    map.push(5);
+
+    let data = map.iter_sorted().collect::<Vec<_>>();
+    assert_eq!(data, [&9, &5, &3, &2, &1]);
+}
+
+#[test]
+fn test_drain_sorted() {
+    let mut map: BinaryHeap<u8> = BinaryHeap::new();
+    map.push(2);
+    map.push(1);
+    map.push(9);
+    map.push(3);
+    map.push(5);
+
+    let data = map.drain_sorted().collect::<Vec<_>>();
+    assert_eq!(data, [9, 5, 3, 2, 1]);
+}
+
+#[test]
+fn test_into_sorted_vec() {
+    let mut map: BinaryHeap<u8> = BinaryHeap::new();
+    map.push(2);
+    map.push(1);
+    map.push(9);
+    map.push(3);
+    map.push(5);
+
+    let data = map.into_sorted_vec();
+    assert_eq!(data, [1, 2, 3, 5, 9]);
 }

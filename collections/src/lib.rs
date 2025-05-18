@@ -6,6 +6,7 @@ extern crate std as alloc;
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
+extern crate core;
 
 #[cfg(feature = "binary-heap")]
 pub mod binary_heap;
