@@ -31,6 +31,18 @@ macro_rules! tuple_deref_mut {
     };
 }
 
+#[macro_export]
+macro_rules! tuple_take {
+    ($Name:ty) => {
+        impl<T> $Name {
+            #[inline]
+            pub fn take(self) -> T {
+                self.0
+            }
+        }
+    };
+}
+
 impl<T: ?Sized> ArcExt for T {}
 
 pub trait ArcExt {

@@ -1,6 +1,6 @@
 [package]
 name = "std-ext"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["try <trywen@qq.com>"]
 edition = "2018"
 rust-version = "1.53"

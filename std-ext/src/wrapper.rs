@@ -1,4 +1,4 @@
-use super::{tuple_deref, tuple_deref_mut};
+use super::{tuple_deref, tuple_deref_mut, tuple_take};
 use std::hash::{Hash, Hasher};
 
 impl<T: ?Sized> OrdExt for T {}
@@ -21,10 +21,12 @@ pub trait OrdExt {
     }
 }
 
+#[derive(Clone)]
 pub struct NeqOrdWrapper<T>(T);
 
 tuple_deref!(NeqOrdWrapper<T>);
 tuple_deref_mut!(NeqOrdWrapper<T>);
+tuple_take!(NeqOrdWrapper<T>);
 
 impl<T> Eq for NeqOrdWrapper<T> {}
 
@@ -48,10 +50,12 @@ impl<T> Ord for NeqOrdWrapper<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct EqOrdWrapper<T>(T);
 
 tuple_deref!(EqOrdWrapper<T>);
 tuple_deref_mut!(EqOrdWrapper<T>);
+tuple_take!(EqOrdWrapper<T>);
 
 impl<T> Eq for EqOrdWrapper<T> {}
 
