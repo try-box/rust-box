@@ -17,6 +17,13 @@ This Crate is developed to solve such problems.
 - Sequential execution of the same type of tasks;
 - Support Local tasks
 
+## Cargo Feature Flags
+
+| Feature | Description | Default |
+|---|---|---|
+| *(default)* | Core task execution without rate tracking | **yes** |
+| `rate` | Enable throughput rate tracking via `box-counter` | no |
+
 ## Plan
 
 ## Examples
