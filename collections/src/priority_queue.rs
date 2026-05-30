@@ -149,6 +149,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 #[test]
 fn test_serde() {
     use alloc::vec::Vec;
@@ -168,8 +169,8 @@ fn test_serde() {
     map.push(3, 33);
     map.push(5, 55);
 
-    let data = bincode::serialize(&map).unwrap();
-    let mut map: PriorityQueue<u8, i16> = bincode::deserialize(&data).unwrap();
+    let data = postcard::to_stdvec(&map).unwrap();
+    let mut map: PriorityQueue<u8, i16> = postcard::from_bytes(&data).unwrap();
     assert_eq!(
         into_vec(&mut map),
         [(9, 99), (5, 55), (3, 33), (2, 22), (1, 11)]
@@ -216,4 +217,84 @@ fn test_into_sorted_vec() {
 
     let data = map.into_sorted_vec();
     assert_eq!(data, [(1, 88), (2, 22), (3, 33), (5, 66), (9, 10)]);
+}
+
+#[test]
+fn test_priority_queue_empty() {
+    let mut heap: PriorityQueue<u8, i16> = PriorityQueue::new();
+    assert_eq!(heap.len(), 0);
+    assert!(heap.is_empty());
+    assert_eq!(heap.peek(), None);
+    assert_eq!(heap.pop(), None);
+    assert_eq!(
+        heap.drain_sorted().collect::<Vec<_>>(),
+        Vec::<(u8, i16)>::new()
+    );
+    assert_eq!(heap.into_sorted_vec(), Vec::<(u8, i16)>::new());
+}
+
+#[test]
+fn test_priority_queue_single_element() {
+    let mut heap: PriorityQueue<u8, i16> = PriorityQueue::new();
+    heap.push(5, 55);
+    assert_eq!(heap.len(), 1);
+    assert!(!heap.is_empty());
+    assert_eq!(heap.peek(), Some((&5, &55)));
+    assert_eq!(heap.pop(), Some((5, 55)));
+    assert!(heap.is_empty());
+
+    // drain_sorted with one element
+    let mut heap2: PriorityQueue<u8, i16> = PriorityQueue::new();
+    heap2.push(7, 77);
+    let drained: Vec<(u8, i16)> = heap2.drain_sorted().collect();
+    assert_eq!(drained, [(7, 77)]);
+
+    // into_sorted_vec with one element
+    let mut heap3: PriorityQueue<u8, i16> = PriorityQueue::new();
+    heap3.push(3, 33);
+    assert_eq!(heap3.into_sorted_vec(), [(3, 33)]);
+}
+
+#[test]
+fn test_priority_queue_same_priority() {
+    let mut heap: PriorityQueue<u8, i16> = PriorityQueue::new();
+    // Same priority - should maintain FIFO order (within same priority, sorted by value which is EqOrdWrapper)
+    heap.push(1, 10);
+    heap.push(1, 20);
+    heap.push(1, 30);
+    heap.push(2, 99);
+    heap.push(2, 88);
+    assert_eq!(heap.len(), 5);
+
+    // drain_sorted: sorted by priority descending, then by value descending (max-heap)
+    let drained = heap.drain_sorted().collect::<Vec<_>>();
+    assert_eq!(drained, [(2, 99), (2, 88), (1, 30), (1, 20), (1, 10)]);
+}
+
+#[test]
+fn test_priority_queue_clear() {
+    let mut heap: PriorityQueue<u8, i16> = PriorityQueue::new();
+    heap.push(3, 33);
+    heap.push(1, 11);
+    heap.push(4, 44);
+    heap.push(5, 55);
+    assert_eq!(heap.len(), 4);
+
+    heap.clear();
+    assert_eq!(heap.len(), 0);
+    assert!(heap.is_empty());
+    assert_eq!(heap.peek(), None);
+    assert_eq!(heap.pop(), None);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_priority_queue_serde_empty() {
+    let heap: PriorityQueue<u8, i16> = PriorityQueue::new();
+    assert!(heap.is_empty());
+
+    let data = postcard::to_stdvec(&heap).unwrap();
+    let heap: PriorityQueue<u8, i16> = postcard::from_bytes(&data).unwrap();
+    assert!(heap.is_empty());
+    assert_eq!(heap.len(), 0);
 }

@@ -424,3 +424,164 @@ fn socket2_bind(
     );
     Ok(listener)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+
+    fn dummy_tx() -> TX {
+        let (tx, _rx) = mpsc::priority_channel::<
+            Priority,
+            (Vec<u8>, Option<oneshot::Sender<Result<Vec<u8>>>>),
+        >(10);
+        tx
+    }
+
+    // ===== server() function tests =====
+
+    #[test]
+    fn test_server_defaults() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx());
+        assert_eq!(srv.laddr, addr);
+        assert!(srv.tls.is_none());
+        assert!(srv.token.is_none());
+        assert_eq!(srv.recv_chunks_timeout, RECV_CHUNKS_TIMEOUT);
+        assert!(srv.max_decoding_message_size.is_none());
+        assert!(srv.max_encoding_message_size.is_none());
+        assert!(srv.reuseaddr);
+        assert!(!srv.reuseport);
+        assert_eq!(srv.chunk_size, CHUNK_SIZE_LIMIT);
+    }
+
+    // ===== Server builder method tests =====
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_server_tls() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let tls_config = TLS {
+            server_cert: "cert.pem".to_string(),
+            server_key: "key.pem".to_string(),
+            client_ca: None,
+            client_domain: None,
+        };
+        let srv = server(addr, dummy_tx()).tls(tls_config.clone());
+        assert!(srv.tls.is_some());
+        let tls = srv.tls.unwrap();
+        assert_eq!(tls.server_cert, "cert.pem");
+        assert_eq!(tls.server_key, "key.pem");
+        assert!(tls.client_ca.is_none());
+        assert!(tls.client_domain.is_none());
+    }
+
+    #[test]
+    fn test_server_token() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).token("secret123".to_string());
+        assert_eq!(srv.token, Some("secret123".to_string()));
+    }
+
+    #[test]
+    fn test_server_recv_chunks_timeout() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).recv_chunks_timeout(Duration::from_secs(15));
+        assert_eq!(srv.recv_chunks_timeout, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_server_chunk_size() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).chunk_size(4096);
+        assert_eq!(srv.chunk_size, 4096);
+    }
+
+    #[test]
+    fn test_server_max_decoding_message_size() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).max_decoding_message_size(1024 * 1024 * 2);
+        assert_eq!(srv.max_decoding_message_size, Some(1024 * 1024 * 2));
+    }
+
+    #[test]
+    fn test_server_max_encoding_message_size() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).max_encoding_message_size(1024 * 1024 * 4);
+        assert_eq!(srv.max_encoding_message_size, Some(1024 * 1024 * 4));
+    }
+
+    #[test]
+    fn test_server_reuseaddr() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).reuseaddr(false);
+        assert!(!srv.reuseaddr);
+    }
+
+    #[test]
+    fn test_server_reuseport() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx()).reuseport(true);
+        assert!(srv.reuseport);
+    }
+
+    #[test]
+    fn test_server_builder_chaining() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let srv = server(addr, dummy_tx())
+            .chunk_size(2048)
+            .recv_chunks_timeout(Duration::from_secs(10))
+            .token("token".to_string());
+        assert_eq!(srv.chunk_size, 2048);
+        assert_eq!(srv.recv_chunks_timeout, Duration::from_secs(10));
+        assert_eq!(srv.token, Some("token".to_string()));
+    }
+
+    // ===== TLS struct tests =====
+
+    #[test]
+    fn test_tls_struct_defaults() {
+        let tls = TLS {
+            server_cert: "cert.pem".to_string(),
+            server_key: "key.pem".to_string(),
+            client_ca: None,
+            client_domain: None,
+        };
+        assert_eq!(tls.server_cert, "cert.pem");
+        assert_eq!(tls.server_key, "key.pem");
+        assert!(tls.client_ca.is_none());
+        assert!(tls.client_domain.is_none());
+    }
+
+    #[test]
+    fn test_tls_struct_with_client_auth() {
+        let tls = TLS {
+            server_cert: "server.crt".to_string(),
+            server_key: "server.key".to_string(),
+            client_ca: Some("ca.crt".to_string()),
+            client_domain: Some("client.example.com".to_string()),
+        };
+        assert_eq!(tls.client_ca, Some("ca.crt".to_string()));
+        assert_eq!(tls.client_domain, Some("client.example.com".to_string()));
+    }
+
+    // ===== DataTransferService tests =====
+
+    #[tokio::test]
+    async fn test_data_transfer_service_new() {
+        let (tx, _rx) = mpsc::priority_channel::<
+            Priority,
+            (Vec<u8>, Option<oneshot::Sender<Result<Vec<u8>>>>),
+        >(10);
+        let service = DataTransferService::new(tx, Duration::from_secs(30), CHUNK_SIZE_LIMIT);
+        assert_eq!(service.recv_chunks_timeout, Duration::from_secs(30));
+        assert_eq!(service.chunk_size, CHUNK_SIZE_LIMIT);
+    }
+
+    #[test]
+    fn test_data_transfer_service_chunk_empty_result() {
+        let resp = DataTransferService::chunk_empty_result();
+        assert_eq!(resp.get_ref().id, 0);
+        assert!(resp.get_ref().data.is_none());
+    }
+}

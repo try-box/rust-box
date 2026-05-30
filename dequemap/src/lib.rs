@@ -27,7 +27,6 @@
 ///type without having to import it from the map module directly.
 ///
 ///The above content and some comments in the code are written by ChatGPT.
-
 #[cfg(feature = "std")]
 extern crate std as alloc;
 

@@ -152,3 +152,252 @@ impl<Q, Item, F> DerefMut for QueueStream<Q, Item, F> {
         &mut self.q
     }
 }
+
+#[cfg(test)]
+use futures::pin_mut;
+#[cfg(test)]
+use futures::task::noop_waker;
+#[cfg(test)]
+use std::cell::Cell;
+
+/// Minimal queue type for testing QueueStream.
+#[cfg(test)]
+struct TestQueue {
+    items: VecDeque<i32>,
+}
+
+#[cfg(test)]
+fn poll_items(pin_q: Pin<&mut TestQueue>, _cx: &mut Context<'_>) -> Poll<Option<i32>> {
+    Poll::Ready(pin_q.get_mut().items.pop_front())
+}
+
+#[cfg(test)]
+fn poll_pending(_pin_q: Pin<&mut TestQueue>, _cx: &mut Context<'_>) -> Poll<Option<i32>> {
+    Poll::Pending
+}
+
+// ---------------------------------------------------------------------------
+// poll_next
+// ---------------------------------------------------------------------------
+
+#[test]
+fn poll_next_yields_items() {
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::from([10, 20, 30]),
+        },
+        poll_items,
+    );
+    pin_mut!(stream);
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(Some(10)));
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(Some(20)));
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(Some(30)));
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(None));
+}
+
+#[test]
+fn poll_next_none_when_empty() {
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_items,
+    );
+    pin_mut!(stream);
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(None));
+}
+
+// ---------------------------------------------------------------------------
+// is_closed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_closed_open() {
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+    assert!(!stream.is_closed());
+}
+
+#[test]
+fn is_closed_after_close() {
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+    stream.close_channel();
+    assert!(stream.is_closed());
+}
+
+// ---------------------------------------------------------------------------
+// Stream termination when channel is closed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn poll_next_terminates_on_closed() {
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+    stream.close_channel();
+
+    pin_mut!(stream);
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(None));
+}
+
+#[test]
+fn close_channel_during_pending_returns_none() {
+    let call_count = Cell::new(0u32);
+    let poll_fn = |_: Pin<&mut TestQueue>, _cx: &mut Context<'_>| -> Poll<Option<i32>> {
+        call_count.set(call_count.get() + 1);
+        Poll::Pending
+    };
+
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_fn,
+    );
+
+    pin_mut!(stream);
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    // First poll: Pending, waker registered
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Pending);
+
+    // Close the channel while stream is waiting (simulating sender drop)
+    stream.close_channel();
+
+    // Second poll: should now return Ready(None) because closed flag is set
+    assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(None));
+}
+
+// ---------------------------------------------------------------------------
+// Waker registration on pending
+// ---------------------------------------------------------------------------
+
+#[test]
+fn waker_registered_on_pending() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let woken = Arc::new(AtomicBool::new(false));
+    let woken_clone = woken.clone();
+
+    struct TestWaker(Arc<AtomicBool>);
+    impl futures::task::ArcWake for TestWaker {
+        fn wake_by_ref(arc_self: &Arc<Self>) {
+            arc_self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let test_waker = Arc::new(TestWaker(woken_clone));
+    let waker = futures::task::waker(test_waker);
+
+    let poll_fn =
+        |_: Pin<&mut TestQueue>, _cx: &mut Context<'_>| -> Poll<Option<i32>> { Poll::Pending };
+
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_fn,
+    );
+    pin_mut!(stream);
+
+    let mut cx = Context::from_waker(&waker);
+    let _ = stream.as_mut().poll_next(&mut cx);
+
+    // Simulate a sender calling rx_wake()
+    stream.rx_wake();
+
+    // After wake, the waker flag should be set
+    assert!(woken.load(Ordering::SeqCst));
+}
+
+// ---------------------------------------------------------------------------
+// Waker trait impl on QueueStream
+// ---------------------------------------------------------------------------
+
+#[test]
+fn queue_stream_implements_waker() {
+    fn requires_waker<T: super::Waker>(_t: &T) {}
+
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+    requires_waker(&stream);
+}
+
+#[test]
+fn queue_stream_waker_tx_park_and_wake() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+
+    let woken = Arc::new(AtomicBool::new(false));
+    let woken_clone = woken.clone();
+
+    struct TestWaker(Arc<AtomicBool>);
+    impl futures::task::ArcWake for TestWaker {
+        fn wake_by_ref(arc_self: &Arc<Self>) {
+            arc_self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let waker = futures::task::waker(Arc::new(TestWaker(woken_clone)));
+
+    // Park a waker
+    stream.tx_park(waker);
+
+    // close_channel should pop the parked waker and wake it
+    assert!(!woken.load(Ordering::SeqCst));
+    stream.close_channel();
+    assert!(woken.load(Ordering::SeqCst));
+}
+
+// ---------------------------------------------------------------------------
+// Send / Sync compile check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn queue_stream_is_send_sync() {
+    fn assert_send<T: Send>(_t: &T) {}
+    fn assert_sync<T: Sync>(_t: &T) {}
+
+    let stream: QueueStream<TestQueue, i32, _> = QueueStream::new(
+        TestQueue {
+            items: VecDeque::new(),
+        },
+        poll_pending,
+    );
+    assert_send(&stream);
+    assert_sync(&stream);
+}

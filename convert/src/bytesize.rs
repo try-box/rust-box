@@ -94,7 +94,7 @@ impl Serialize for Bytesize {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&self.string())
     }
 }
 
@@ -136,4 +136,112 @@ fn to_bytesize(text: &str) -> usize {
             }
         })
         .sum()
+}
+
+#[cfg(test)]
+#[cfg(feature = "bytesize")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_usize() {
+        let b = Bytesize::from(0usize);
+        assert_eq!(b.as_usize(), 0);
+
+        let b = Bytesize::from(1usize);
+        assert_eq!(b.as_usize(), 1);
+
+        let b = Bytesize::from(1024usize);
+        assert_eq!(b.as_usize(), 1024);
+
+        let b = Bytesize::from(1048576usize);
+        assert_eq!(b.as_usize(), 1048576);
+    }
+
+    #[test]
+    fn test_from_str() {
+        let b = Bytesize::from("1K");
+        assert_eq!(b.as_usize(), 1024);
+
+        let b = Bytesize::from("1M");
+        assert_eq!(b.as_usize(), 1024 * 1024);
+
+        let b = Bytesize::from("1G");
+        assert_eq!(b.as_usize(), 1024 * 1024 * 1024);
+
+        let b = Bytesize::from("1K2M");
+        assert_eq!(b.as_usize(), 1024 + 2 * 1024 * 1024);
+
+        let b = Bytesize::from("1K2M3B");
+        assert_eq!(b.as_usize(), 1024 + 2 * 1024 * 1024 + 3);
+    }
+
+    #[test]
+    fn test_string_output() {
+        assert_eq!(Bytesize::from(1024usize).string(), "1K");
+        assert_eq!(Bytesize::from(1048576usize).string(), "1M");
+        assert_eq!(Bytesize::from(1073741824usize).string(), "1G");
+        assert_eq!(Bytesize::from(2048usize).string(), "2K");
+        assert_eq!(Bytesize::from(1025usize).string(), "1K1B");
+        assert_eq!(Bytesize::from(1usize).string(), "1B");
+    }
+
+    #[test]
+    fn test_as_types() {
+        let b = Bytesize::from(42usize);
+        assert_eq!(b.as_u32(), 42u32);
+        assert_eq!(b.as_u64(), 42u64);
+        assert_eq!(b.as_usize(), 42usize);
+
+        let b = Bytesize::from(usize::MAX);
+        assert_eq!(b.as_u64(), usize::MAX as u64);
+        assert_eq!(b.as_usize(), usize::MAX);
+    }
+
+    #[test]
+    fn test_deref() {
+        let b = Bytesize::from(42usize);
+        assert_eq!(*b, 42);
+    }
+
+    #[test]
+    fn test_invalid_str() {
+        let b = Bytesize::from("");
+        assert_eq!(b.as_usize(), 0);
+
+        let b = Bytesize::from("invalid");
+        assert_eq!(b.as_usize(), 0);
+
+        let b = Bytesize::from("123");
+        assert_eq!(b.as_usize(), 0);
+
+        let b = Bytesize::from("XYZ");
+        assert_eq!(b.as_usize(), 0);
+    }
+
+    #[test]
+    fn test_large_value() {
+        let b = Bytesize::from(1_000_000_000_000usize);
+        assert!(b.as_u64() == 1_000_000_000_000);
+        let s = b.string();
+        assert!(!s.is_empty());
+        // Roundtrip through string
+        let c = Bytesize::from(s.as_str());
+        assert_eq!(b.as_usize(), c.as_usize());
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let b = Bytesize::from(2048usize);
+        let serialized = serde_json::to_string(&b).unwrap();
+        assert_eq!(serialized, "\"2K\"");
+        let deserialized: Bytesize = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.as_usize(), 2048);
+
+        let b2 = Bytesize::from(1048576usize);
+        let serialized2 = serde_json::to_string(&b2).unwrap();
+        assert_eq!(serialized2, "\"1M\"");
+        let deserialized2: Bytesize = serde_json::from_str(&serialized2).unwrap();
+        assert_eq!(deserialized2.as_usize(), 1048576);
+    }
 }

@@ -41,3 +41,13 @@ pub use counter;
 #[doc(inline)]
 #[cfg(feature = "convert")]
 pub use convert;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(feature = "event")]
+    fn test_re_export_event() {
+        use crate::event::Event;
+        let _event = Event::<i32, i32>::listen(|args, _next| args).finish();
+    }
+}

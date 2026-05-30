@@ -107,6 +107,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 #[test]
 fn test_serde() {
     use alloc::vec::Vec;
@@ -126,8 +127,8 @@ fn test_serde() {
     map.push(3);
     map.push(5);
 
-    let data = bincode::serialize(&map).unwrap();
-    let mut map: BinaryHeap<u8> = bincode::deserialize(&data).unwrap();
+    let data = postcard::to_stdvec(&map).unwrap();
+    let mut map: BinaryHeap<u8> = postcard::from_bytes(&data).unwrap();
     assert_eq!(into_vec(&mut map), [9, 5, 3, 2, 1]);
 }
 
@@ -168,4 +169,79 @@ fn test_into_sorted_vec() {
 
     let data = map.into_sorted_vec();
     assert_eq!(data, [1, 2, 3, 5, 9]);
+}
+
+#[test]
+fn test_binary_heap_empty() {
+    let mut heap: BinaryHeap<i32> = BinaryHeap::new();
+    assert_eq!(heap.len(), 0);
+    assert!(heap.is_empty());
+    assert_eq!(heap.peek(), None);
+    assert_eq!(heap.drain_sorted().collect::<Vec<_>>(), Vec::<i32>::new());
+    assert_eq!(heap.into_sorted_vec(), Vec::<i32>::new());
+}
+
+#[test]
+fn test_binary_heap_single_element() {
+    let mut heap: BinaryHeap<i32> = BinaryHeap::new();
+    heap.push(42);
+    assert_eq!(heap.len(), 1);
+    assert!(!heap.is_empty());
+    assert_eq!(heap.peek(), Some(&42));
+    assert_eq!(heap.pop(), Some(42));
+    assert!(heap.is_empty());
+
+    // drain_sorted with one element
+    let mut heap2: BinaryHeap<i32> = BinaryHeap::new();
+    heap2.push(7);
+    let drained: Vec<i32> = heap2.drain_sorted().collect();
+    assert_eq!(drained, [7]);
+
+    // into_sorted_vec with one element
+    let mut heap3: BinaryHeap<i32> = BinaryHeap::new();
+    heap3.push(3);
+    assert_eq!(heap3.into_sorted_vec(), [3]);
+}
+
+#[test]
+fn test_binary_heap_clear() {
+    let mut heap: BinaryHeap<i32> = BinaryHeap::new();
+    heap.push(3);
+    heap.push(1);
+    heap.push(4);
+    heap.push(1);
+    heap.push(5);
+    assert_eq!(heap.len(), 5);
+
+    heap.clear();
+    assert_eq!(heap.len(), 0);
+    assert!(heap.is_empty());
+    assert_eq!(heap.peek(), None);
+    assert_eq!(heap.pop(), None);
+}
+
+#[test]
+fn test_binary_heap_duplicates() {
+    let mut heap: BinaryHeap<i32> = BinaryHeap::new();
+    heap.push(5);
+    heap.push(5);
+    heap.push(5);
+    heap.push(3);
+    heap.push(3);
+    assert_eq!(heap.len(), 5);
+
+    let drained = heap.drain_sorted().collect::<Vec<_>>();
+    assert_eq!(drained, [5, 5, 5, 3, 3]);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_binary_heap_serde_empty() {
+    let heap: BinaryHeap<u8> = BinaryHeap::new();
+    assert!(heap.is_empty());
+
+    let data = postcard::to_stdvec(&heap).unwrap();
+    let heap: BinaryHeap<u8> = postcard::from_bytes(&data).unwrap();
+    assert!(heap.is_empty());
+    assert_eq!(heap.len(), 0);
 }

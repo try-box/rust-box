@@ -209,3 +209,163 @@ fn test_eq() {
     let a2 = EqOrdWrapper(1);
     assert!(a1.eq(&a2));
 }
+
+#[test]
+fn test_neq_ord_cmp_order() {
+    // NeqOrdWrapper always returns Greater on cmp
+    let a = NeqOrdWrapper(5);
+    let b = NeqOrdWrapper(10);
+    assert!(a.cmp(&b) == std::cmp::Ordering::Greater);
+    // PartialCmp always returns None
+    assert!(a.partial_cmp(&b).is_none());
+    // PartialEq always returns false
+    assert!(a.ne(&b));
+}
+
+#[test]
+fn test_neq_ord_clone() {
+    let a = NeqOrdWrapper("hello");
+    let b = a.clone();
+    assert_eq!(*a, "hello");
+    assert_eq!(*b, "hello");
+}
+
+#[test]
+fn test_neq_ord_deref_mut() {
+    let mut a = NeqOrdWrapper(0);
+    *a = 100;
+    assert_eq!(*a, 100);
+}
+
+#[test]
+fn test_neq_ord_take() {
+    let a = NeqOrdWrapper(42);
+    assert_eq!(a.take(), 42);
+}
+
+#[test]
+fn test_eq_ord_cmp_order() {
+    // EqOrdWrapper always returns Equal on cmp and partial_cmp
+    let a = EqOrdWrapper(5);
+    let b = EqOrdWrapper(10);
+    assert!(a.cmp(&b) == std::cmp::Ordering::Equal);
+    assert!(a.partial_cmp(&b) == Some(std::cmp::Ordering::Equal));
+    // PartialEq always returns true
+    assert!(a.eq(&b));
+}
+
+#[test]
+fn test_eq_ord_clone() {
+    let a = EqOrdWrapper(42);
+    let b = a.clone();
+    assert_eq!(*a, 42);
+    assert_eq!(*b, 42);
+}
+
+#[test]
+fn test_eq_ord_take() {
+    let a = EqOrdWrapper(99);
+    assert_eq!(a.take(), 99);
+}
+
+#[test]
+fn test_hash_wrapper_trait() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut w = HashWrapper(42, 12345);
+    assert_eq!(*w, 42);
+    *w = 100;
+    assert_eq!(*w, 100);
+
+    // Hash with same value produces same result
+    let w1 = HashWrapper("a", 999);
+    let w2 = HashWrapper("b", 999);
+
+    let mut h1 = DefaultHasher::new();
+    w1.hash(&mut h1);
+    let mut h2 = DefaultHasher::new();
+    w2.hash(&mut h2);
+    assert_eq!(h1.finish(), h2.finish());
+}
+
+#[test]
+fn test_empty_hash_wrapper_trait() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let w = EmptyHashWrapper(42);
+    assert_eq!(*w, 42);
+
+    let mut h = DefaultHasher::new();
+    w.hash(&mut h);
+    let default_hash = DefaultHasher::new().finish();
+    assert_eq!(h.finish(), default_hash);
+}
+
+#[test]
+fn test_neq_ord_hash_wrapper() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let a = NeqOrdHashWrapper(1, 100);
+    let b = NeqOrdHashWrapper(1, 100);
+
+    // PartialEq always false
+    assert!(a.ne(&b));
+
+    // Hash considers the u64 value
+    let mut h1 = DefaultHasher::new();
+    a.hash(&mut h1);
+    let mut h2 = DefaultHasher::new();
+    b.hash(&mut h2);
+    assert_eq!(h1.finish(), h2.finish());
+}
+
+#[test]
+fn test_neq_ord_empty_hash_wrapper() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let a = NeqOrdEmptyHashWrapper(1);
+    let b = NeqOrdEmptyHashWrapper(2);
+
+    // PartialEq always false
+    assert!(a.ne(&b));
+
+    // Ord always Greater
+    assert!(a.cmp(&b) == std::cmp::Ordering::Greater);
+
+    // Hash is empty
+    let mut h1 = DefaultHasher::new();
+    a.hash(&mut h1);
+    let mut h2 = DefaultHasher::new();
+    b.hash(&mut h2);
+    let default_hash = DefaultHasher::new().finish();
+    assert_eq!(h1.finish(), default_hash);
+    assert_eq!(h2.finish(), default_hash);
+}
+
+#[test]
+fn test_hash_ext_hash_value() {
+    let w = 42.hash_value(12345);
+    assert_eq!(*w, 42);
+}
+
+#[test]
+fn test_hash_ext_hash_empty() {
+    let w = 42.hash_empty();
+    assert_eq!(*w, 42);
+}
+
+#[test]
+fn test_ord_hash_ext_neq_ord_hash_trait() {
+    let a = "test".neq_ord_hash(777);
+    assert_eq!(*a, "test");
+}
+
+#[test]
+fn test_ord_hash_ext_neq_ord_empty_trait() {
+    let a = "test".neq_ord_empty();
+    assert_eq!(*a, "test");
+}

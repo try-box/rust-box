@@ -158,7 +158,7 @@ where
     }
 
     #[inline]
-    pub fn entry(&mut self, key: K) -> Entry<K, V>
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V>
     where
         K: Ord,
     {
@@ -883,8 +883,8 @@ fn test_dequebtreemap_serde() {
 
     assert_eq!(to_vec(&map), [(2, 20), (1, 10), (9, 90), (3, 30), (5, 50)]);
 
-    let data = bincode::serialize(&map).unwrap();
-    let map: DequeBTreeMap<i32, i32> = bincode::deserialize(&data).unwrap();
+    let data = postcard::to_stdvec(&map).unwrap();
+    let map: DequeBTreeMap<i32, i32> = postcard::from_bytes(&data).unwrap();
     assert_eq!(to_vec(&map), [(2, 20), (1, 10), (9, 90), (3, 30), (5, 50)]);
 }
 
@@ -1049,4 +1049,169 @@ fn test_dequemap_retain() {
 
     assert_eq!(map.entries.len(), map.indices.len());
     assert_eq!(map.entries.len(), 3);
+}
+
+#[test]
+fn test_empty_dequebtreemap() {
+    let mut map: DequeBTreeMap<i32, i32> = DequeBTreeMap::new();
+    assert_eq!(map.len(), 0);
+    assert!(map.is_empty());
+    assert_eq!(map.front(), None);
+    assert_eq!(map.back(), None);
+    assert_eq!(map.pop_front(), None);
+    assert_eq!(map.pop_back(), None);
+    assert_eq!(map.get(&1), None);
+    assert_eq!(map.contains_key(&1), false);
+}
+
+#[test]
+fn test_dequebtreemap_large_entries() {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<alloc::vec::Vec<(i32, i32)>>()
+    };
+
+    let mut map = DequeBTreeMap::new();
+    for i in 0..1000 {
+        map.push_back(i, i * 10);
+    }
+    assert_eq!(map.len(), 1000);
+    assert!(!map.is_empty());
+
+    for i in 0..1000 {
+        assert_eq!(map.get(&i), Some(&(i * 10)));
+    }
+
+    let expected: Vec<(i32, i32)> = (0..1000).map(|i| (i, i * 10)).collect();
+    assert_eq!(to_vec(&map), expected);
+
+    // pop_front all
+    for i in 0..1000 {
+        assert_eq!(map.pop_front(), Some((i, i * 10)));
+    }
+    assert!(map.is_empty());
+    assert_eq!(map.len(), 0);
+}
+
+#[test]
+fn test_dequebtreemap_push_front_back_interleave() {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<alloc::vec::Vec<(i32, i32)>>()
+    };
+
+    let mut map = DequeBTreeMap::new();
+    map.push_back(3, 30);
+    map.push_front(1, 10);
+    map.push_back(5, 50);
+    map.push_front(0, 0);
+    map.push_back(7, 70);
+    assert_eq!(to_vec(&map), [(0, 0), (1, 10), (3, 30), (5, 50), (7, 70)]);
+
+    assert_eq!(map.pop_front(), Some((0, 0)));
+    assert_eq!(map.pop_back(), Some((7, 70)));
+    assert_eq!(to_vec(&map), [(1, 10), (3, 30), (5, 50)]);
+}
+
+#[test]
+fn test_dequebtreemap_remove_middle() {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<alloc::vec::Vec<(i32, i32)>>()
+    };
+
+    let mut map = DequeBTreeMap::new();
+    map.push_back(1, 10);
+    map.push_back(2, 20);
+    map.push_back(3, 30);
+    map.push_back(4, 40);
+    map.push_back(5, 50);
+
+    map.remove(&3);
+    assert_eq!(to_vec(&map), [(1, 10), (2, 20), (4, 40), (5, 50)]);
+    assert_eq!(map.len(), 4);
+
+    // Check remaining indices via Index
+    assert_eq!(map[0], 10);
+    assert_eq!(map[1], 20);
+    assert_eq!(map[2], 40);
+    assert_eq!(map[3], 50);
+}
+
+#[test]
+fn test_dequebtreemap_insert_existing() {
+    let to_vec = |map: &DequeBTreeMap<i32, i32>| {
+        map.iter()
+            .map(|t| (*t.0, *t.1))
+            .collect::<alloc::vec::Vec<(i32, i32)>>()
+    };
+
+    let mut map = DequeBTreeMap::new();
+    map.push_back(1, 10);
+    map.push_back(2, 20);
+    map.push_back(3, 30);
+
+    // Insert existing key - updates value without moving index
+    assert_eq!(map.insert(2, 200), Some(20));
+    assert_eq!(to_vec(&map), [(1, 10), (2, 200), (3, 30)]);
+
+    // push_back existing - moves to back
+    assert_eq!(map.push_back(1, 100), Some(10));
+    assert_eq!(to_vec(&map), [(2, 200), (3, 30), (1, 100)]);
+
+    // push_front existing - moves to front
+    assert_eq!(map.push_front(3, 300), Some(30));
+    assert_eq!(to_vec(&map), [(3, 300), (2, 200), (1, 100)]);
+
+    assert_eq!(map.entries.len(), map.indices.len());
+}
+
+#[test]
+fn test_dequebtreemap_clear() {
+    let mut map = DequeBTreeMap::new();
+    map.push_back(1, 10);
+    map.push_back(2, 20);
+    map.push_back(3, 30);
+    assert_eq!(map.len(), 3);
+    assert!(!map.is_empty());
+
+    map.clear();
+    assert_eq!(map.len(), 0);
+    assert!(map.is_empty());
+    assert_eq!(map.front(), None);
+    assert_eq!(map.back(), None);
+    assert_eq!(map.get(&1), None);
+    assert_eq!(map.contains_key(&1), false);
+}
+
+#[test]
+fn test_dequebtreemap_entry_or_default() {
+    let mut map: DequeBTreeMap<i32, Vec<i32>> = DequeBTreeMap::new();
+    // or_default on a Vacant entry inserts Default::default()
+    map.entry(1).or_default().push(10);
+    map.entry(2).or_default().push(20);
+    assert_eq!(map.get(&1), Some(&vec![10]));
+    assert_eq!(map.get(&2), Some(&vec![20]));
+    assert_eq!(map.len(), 2);
+
+    // or_default on an Occupied entry returns existing value
+    map.entry(1).or_default().push(100);
+    assert_eq!(map.get(&1), Some(&vec![10, 100]));
+    assert_eq!(map.len(), 2);
+    assert_eq!(map.entries.len(), map.indices.len());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_dequebtreemap_serde_empty() {
+    let map: DequeBTreeMap<i32, i32> = DequeBTreeMap::new();
+    assert!(map.is_empty());
+
+    let data = postcard::to_stdvec(&map).unwrap();
+    let map: DequeBTreeMap<i32, i32> = postcard::from_bytes(&data).unwrap();
+    assert!(map.is_empty());
+    assert_eq!(map.len(), 0);
 }

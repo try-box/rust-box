@@ -8,7 +8,7 @@ impl<T: ?Sized> LocalSpawnExt for T where T: futures::Future {}
 
 pub trait LocalSpawnExt: futures::Future {
     #[inline]
-    fn spawn<Tx, G>(self, queue: &LocalTaskExecQueue<Tx, G>) -> LocalSpawner<Self, Tx, G, ()>
+    fn spawn<Tx, G>(self, queue: &LocalTaskExecQueue<Tx, G>) -> LocalSpawner<'_, Self, Tx, G, ()>
     where
         Self: Sized + 'static,
         Self::Output: 'static,
@@ -24,7 +24,7 @@ pub trait LocalSpawnExt: futures::Future {
         self,
         queue: &LocalTaskExecQueue<Tx, G, D>,
         name: D,
-    ) -> LocalSpawner<Self, Tx, G, D>
+    ) -> LocalSpawner<'_, Self, Tx, G, D>
     where
         Self: Sized + 'static,
         Self::Output: 'static,

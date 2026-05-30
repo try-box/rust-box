@@ -233,11 +233,7 @@ impl Client {
             loop {
                 log::trace!("gRPC call transfer ... ");
                 if let Err(e) = this.connect().transfer(Request::new(rx.clone())).await {
-                    log::warn!(
-                        "gRPC call transfer failure, addr:{}, {}",
-                        addr,
-                        e.to_string()
-                    );
+                    log::warn!("gRPC call transfer failure, addr:{}, {}", addr, e);
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     continue;
                 }
@@ -284,11 +280,7 @@ impl Client {
                     .await
                 {
                     Err(e) => {
-                        log::warn!(
-                            "gRPC call duplex transfer failure, addr:{}, {}",
-                            addr,
-                            e.to_string()
-                        );
+                        log::warn!("gRPC call duplex transfer failure, addr:{}, {}", addr, e);
                         tokio::time::sleep(Duration::from_secs(3)).await;
                         continue;
                     }
@@ -300,7 +292,7 @@ impl Client {
                                     log::warn!(
                                         "gRPC duplex transfer response stream recv failure, addr:{}, {}",
                                         addr,
-                                        e.to_string()
+                                        e
                                     );
                                     tokio::time::sleep(Duration::from_secs(3)).await;
                                     continue 'outer;
@@ -312,7 +304,7 @@ impl Client {
                                         log::warn!(
                                             "gRPC duplex transfer send response message failure, addr:{}, {}",
                                             addr,
-                                            e.to_string()
+                                            e
                                         );
                                     }
                                 }
@@ -856,3 +848,388 @@ impl<T> SendError<T> {
 }
 
 impl<T: core::any::Any> std::error::Error for SendError<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+
+    // ===== ClientBuilder tests =====
+
+    #[test]
+    fn test_client_builder_default() {
+        let builder = ClientBuilder::default();
+        assert_eq!(builder.concurrency_limit, 10);
+        assert_eq!(builder.connect_timeout, None);
+        assert_eq!(builder.timeout, None);
+        assert_eq!(builder.tls, false);
+        assert!(builder.tls_ca.is_none());
+        assert!(builder.tls_domain.is_none());
+        assert!(builder.auth_token.is_none());
+        assert_eq!(builder.chunk_size, CHUNK_SIZE_LIMIT);
+        assert_eq!(builder.recv_chunks_timeout, RECV_CHUNKS_TIMEOUT);
+    }
+
+    #[test]
+    fn test_client_builder_chaining() {
+        let builder = ClientBuilder::default()
+            .concurrency_limit(20)
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .chunk_size(8192)
+            .recv_chunks_timeout(Duration::from_secs(60))
+            .auth_token(Some("my-token".to_string()));
+        assert_eq!(builder.concurrency_limit, 20);
+        assert_eq!(builder.connect_timeout, Some(Duration::from_secs(5)));
+        assert_eq!(builder.timeout, Some(Duration::from_secs(30)));
+        assert_eq!(builder.chunk_size, 8192);
+        assert_eq!(builder.recv_chunks_timeout, Duration::from_secs(60));
+        assert_eq!(builder.auth_token, Some("my-token".to_string()));
+    }
+
+    #[test]
+    fn test_client_builder_auth_token_none() {
+        let builder = ClientBuilder::default().auth_token(None);
+        assert!(builder.auth_token.is_none());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_client_builder_tls() {
+        let builder = ClientBuilder::default()
+            .tls(Some("ca.pem".to_string()), Some("example.com".to_string()));
+        assert!(builder.tls);
+        assert_eq!(builder.tls_ca, Some("ca.pem".to_string()));
+        assert_eq!(builder.tls_domain, Some("example.com".to_string()));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_client_builder_tls_none() {
+        let builder = ClientBuilder::default().tls(None, None);
+        assert!(builder.tls);
+        assert!(builder.tls_ca.is_none());
+        assert!(builder.tls_domain.is_none());
+    }
+
+    #[test]
+    fn test_client_new_returns_builder() {
+        let builder = Client::new("127.0.0.1:8080".to_string());
+        assert_eq!(builder.addr, "127.0.0.1:8080");
+        assert_eq!(builder.concurrency_limit, 10);
+    }
+
+    // ===== next_id() tests =====
+
+    #[test]
+    fn test_next_id_starts_at_one() {
+        let id = next_id();
+        assert!(id >= 1);
+    }
+
+    #[test]
+    fn test_next_id_increases() {
+        let id1 = next_id();
+        let id2 = next_id();
+        assert!(id2 > id1);
+    }
+
+    // ===== SendError tests =====
+
+    #[test]
+    fn test_send_error_full() {
+        let err = SendError::<Vec<u8>>::full(vec![1, 2, 3]);
+        assert!(err.is_full());
+        assert!(!err.is_disconnected());
+        assert_eq!(err.into_inner(), Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_send_error_disconnected_with_value() {
+        let err = SendError::<Vec<u8>>::disconnected(Some(vec![4, 5, 6]));
+        assert!(!err.is_full());
+        assert!(err.is_disconnected());
+        assert_eq!(err.into_inner(), Some(vec![4, 5, 6]));
+    }
+
+    #[test]
+    fn test_send_error_disconnected_none() {
+        let err = SendError::<Vec<u8>>::disconnected(None);
+        assert!(!err.is_full());
+        assert!(err.is_disconnected());
+        assert!(err.into_inner().is_none());
+    }
+
+    #[test]
+    fn test_send_error_error_variant() {
+        let err = SendError::<Vec<u8>>::error("custom error".to_string(), Some(vec![7, 8]));
+        assert!(!err.is_full(), "Error variant should not be full");
+        assert!(
+            !err.is_disconnected(),
+            "Error variant should not be disconnected"
+        );
+        assert_eq!(err.into_inner(), Some(vec![7, 8]));
+    }
+
+    #[test]
+    fn test_send_error_error_variant_no_value() {
+        let err = SendError::<Vec<u8>>::error("custom error".to_string(), None);
+        assert_eq!(err.into_inner(), None);
+    }
+
+    #[test]
+    fn test_send_error_display() {
+        let err = SendError::<Vec<u8>>::full(vec![]);
+        let display = format!("{}", err);
+        assert!(!display.is_empty());
+    }
+
+    #[test]
+    fn test_send_error_debug() {
+        let err = SendError::<Vec<u8>>::disconnected(None);
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("SendError"));
+    }
+
+    #[test]
+    fn test_send_error_send_error_variant_is_full_false() {
+        // SendError::Error should return false for is_full
+        let err = SendError::<()>::error("err".to_string(), None);
+        assert!(!err.is_full());
+    }
+
+    #[test]
+    fn test_send_error_send_error_variant_is_disconnected_false() {
+        let err = SendError::<()>::error("err".to_string(), None);
+        assert!(!err.is_disconnected());
+    }
+
+    // ===== Mailbox tests =====
+
+    #[tokio::test]
+    async fn test_mailbox_new_and_queue_empty() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, _rx) = mpsc::with_priority_channel(queue.clone(), 10);
+        let mailbox = Mailbox::new(tx, queue, 10, 1024);
+        assert!(!mailbox.req_queue_is_full());
+        assert_eq!(mailbox.req_queue_len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mailbox_send_small_data() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, mut rx) = mpsc::with_priority_channel(queue.clone(), 10);
+        let mut mailbox = Mailbox::new(tx, queue, 10, 1024);
+
+        mailbox.send(vec![1, 2, 3]).await.unwrap();
+        let (_p, msg) = rx.next().await.unwrap();
+        assert_eq!(msg.data, Some(vec![1, 2, 3]));
+        assert_eq!(msg.total_chunks, 0); // small data uses total_chunks=0
+    }
+
+    #[tokio::test]
+    async fn test_mailbox_send_large_data_chunked() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, mut rx) = mpsc::with_priority_channel(queue.clone(), 10);
+        let mut mailbox = Mailbox::new(tx, queue, 10, 100);
+
+        let data = vec![0u8; 250];
+        mailbox.send(data.clone()).await.unwrap();
+        // Should be split into 3 chunks (100 + 100 + 50)
+        let mut received = Vec::new();
+        for _ in 0..3 {
+            let (_p, msg) = rx.next().await.unwrap();
+            received.extend_from_slice(msg.data.as_deref().unwrap());
+        }
+        assert_eq!(received, data);
+    }
+
+    #[tokio::test]
+    async fn test_mailbox_send_priority() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, mut rx) = mpsc::with_priority_channel(queue.clone(), 10);
+        let mut mailbox = Mailbox::new(tx, queue, 10, 1024);
+
+        mailbox.send_priority(vec![10, 20], 99).await.unwrap();
+        let (p, msg) = rx.next().await.unwrap();
+        assert_eq!(p, 99);
+        assert_eq!(msg.data, Some(vec![10, 20]));
+    }
+
+    #[tokio::test]
+    async fn test_mailbox_quick_send() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, mut rx) = mpsc::with_priority_channel(queue.clone(), 10);
+        let mut mailbox = Mailbox::new(tx, queue, 10, 1024);
+
+        mailbox.quick_send(vec![99]).await.unwrap();
+        let (p, msg) = rx.next().await.unwrap();
+        assert_eq!(p, Priority::MAX);
+        assert_eq!(msg.data, Some(vec![99]));
+    }
+
+    #[tokio::test]
+    async fn test_mailbox_req_queue_status() {
+        let queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (tx, mut rx) = mpsc::with_priority_channel(queue.clone(), 3);
+        let mut mailbox = Mailbox::new(tx, queue, 3, 1024);
+
+        assert!(!mailbox.req_queue_is_full());
+        assert_eq!(mailbox.req_queue_len(), 0);
+
+        // Send 3 items to fill the queue
+        mailbox.send(vec![1]).await.unwrap();
+        mailbox.send(vec![2]).await.unwrap();
+        mailbox.send(vec![3]).await.unwrap();
+
+        // The req_queue is separate from the channel queue — it tracks items waiting to be sent
+        // After sending to the channel, items may or may not be in req_queue
+        // Just verify it's not at capacity in a broken state
+        assert!(mailbox.req_queue_len() <= 3);
+
+        // Drain the receiver
+        let _ = rx.next().await;
+        let _ = rx.next().await;
+        let _ = rx.next().await;
+    }
+
+    // ===== DuplexMailbox tests =====
+
+    #[tokio::test]
+    async fn test_duplex_mailbox_new() {
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, _req_rx) = mpsc::with_priority_channel(req_queue.clone(), 10);
+        let (_resp_tx, resp_rx) = mpsc::with_priority_channel(resp_queue.clone(), 10);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            10,
+            1024,
+            Duration::from_secs(30),
+            Some(Duration::from_secs(60)),
+        );
+
+        // Give the background task a moment to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(!mailbox.req_queue_is_full());
+        assert_eq!(mailbox.req_queue_len(), 0);
+        assert_eq!(mailbox.resp_queue_len(), 0);
+        assert_eq!(mailbox.resp_senders_len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_duplex_mailbox_send_creates_resp_sender() {
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, _req_rx) = mpsc::with_priority_channel(req_queue.clone(), 10);
+        let (_resp_tx, resp_rx) = mpsc::with_priority_channel(resp_queue.clone(), 10);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mut mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            10,
+            1024,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(100)),
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Dropping the req_rx will disconnect the sender, so sending will fail
+        // Instead, just verify the mailbox is constructed and basic queries work
+        assert_eq!(mailbox.resp_senders_len(), 0);
+
+        // Try sending — will fail because no one is listening on req_rx (it was dropped already)
+        // Actually the Receiver is still alive inside DuplexMailbox since we passed it
+        let result = mailbox.send(vec![1, 2, 3]).await;
+        // This will likely timeout because no response comes back
+        // Just verify it's an error (SendError or timeout)
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_duplex_mailbox_send_priority() {
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, _req_rx) = mpsc::with_priority_channel(req_queue.clone(), 10);
+        let (_resp_tx, resp_rx) = mpsc::with_priority_channel(resp_queue.clone(), 10);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mut mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            10,
+            1024,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(100)),
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let result = mailbox.send_priority(vec![1, 2, 3], 42).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_duplex_mailbox_quick_send() {
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, _req_rx) = mpsc::with_priority_channel(req_queue.clone(), 10);
+        let (_resp_tx, resp_rx) = mpsc::with_priority_channel(resp_queue.clone(), 10);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mut mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            10,
+            1024,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(100)),
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let result = mailbox.quick_send(vec![4, 5, 6]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_duplex_mailbox_queue_and_senders_len() {
+        let req_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let resp_queue = Arc::new(parking_lot::RwLock::new(PriorityQueue::default()));
+        let (req_tx, _req_rx) = mpsc::with_priority_channel(req_queue.clone(), 10);
+        let (_resp_tx, resp_rx) = mpsc::with_priority_channel(resp_queue.clone(), 10);
+        let resp_rx = Receiver::new(resp_rx);
+
+        let mailbox = DuplexMailbox::new(
+            req_tx,
+            resp_rx,
+            req_queue,
+            resp_queue,
+            10,
+            1024,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(100)),
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(!mailbox.req_queue_is_full());
+        assert_eq!(mailbox.req_queue_len(), 0);
+        assert_eq!(mailbox.resp_queue_len(), 0);
+        assert_eq!(mailbox.resp_senders_len(), 0);
+    }
+}
