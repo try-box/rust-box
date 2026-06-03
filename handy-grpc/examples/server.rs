@@ -7,6 +7,7 @@ use handy_grpc::server::{server, Message};
 use mpsc::priority_channel as channel;
 
 // cargo run -r --example server --features rate_print
+// cargo run -r -p handy-grpc --example server --features rate_print
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {

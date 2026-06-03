@@ -16,3 +16,5 @@ try-box.iml
 /examples/Cargo.lock
 
 
+/.workbuddy/memory
+/publishs.bat

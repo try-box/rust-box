@@ -2,6 +2,7 @@ use handy_grpc::client::Client;
 use std::time::Duration;
 
 // cargo run -r --example bench_sender
+// cargo run -r -p handy-grpc --example bench_sender
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
