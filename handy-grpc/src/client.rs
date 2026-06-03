@@ -11,7 +11,7 @@ use mpsc::with_priority_channel;
 use parking_lot::RwLock;
 use scopeguard::defer;
 use tokio::sync::oneshot;
-use tonic::codegen::InterceptedService;
+use tonic::service::interceptor::InterceptedService;
 use tonic::metadata::Ascii;
 use tonic::service::Interceptor;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};

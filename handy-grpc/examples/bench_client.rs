@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 // cargo run -r --example bench_client
+// cargo run -r -p handy-grpc --example bench_client
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -13,6 +14,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:10000";
 
     let concurrency_limit = 256;
+    let clients = concurrency_limit * 10;
+    let messages = 5_000_000;
 
     let runner = async move {
         let client = Client::new(addr.into())
@@ -46,8 +49,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             };
 
             let mut sends = Vec::new();
-            for _ in 0..(concurrency_limit * 10) {
-                sends.push(send(client.clone(), 5_000_000, timeouts1.clone()));
+            for _ in 0..clients {
+                sends.push(send(client.clone(), messages / clients, timeouts1.clone()));
             }
             futures::future::join_all(sends).await;
         };

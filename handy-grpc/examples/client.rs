@@ -1,6 +1,7 @@
 use handy_grpc::client::Client;
 
 // cargo run -r --example client
+// cargo run -r -p handy-grpc --example client
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
