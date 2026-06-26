@@ -1,6 +1,6 @@
 [package]
 name = "rust-box"
-version = "0.17.0"
+version = "0.18.0"
 authors = ["try <trywen@qq.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -48,12 +48,12 @@ convert-bytesize = ["convert/bytesize"]
 [dependencies]
 queue-ext = { version = "0.4.2", path = "./queue-ext", optional = true }
 stream-ext = { version = "0.2.5", path = "./stream-ext", optional = true }
-task-exec-queue = { version = "0.10.0", path = "./task-exec-queue", optional = true }
+task-exec-queue = { version = "0.10.1", path = "./task-exec-queue", optional = true }
 event-notify = { version = "0.1.2", path = "./event", optional = true }
 std-ext = { version = "0.4.0", path = "./std-ext", optional = true }
 mpsc = { version = "0.3.0", path = "./mpsc", optional = true }
 dequemap = { version = "0.3.0", path = "./dequemap", optional = true }
-handy-grpc = { version = "0.7.0", path = "./handy-grpc", optional = true }
+handy-grpc = { version = "0.8.0", path = "./handy-grpc", optional = true }
 collections = { package = "box-collections", version = "0.3.0", path = "./collections", optional = true }
 counter = { package = "box-counter", version = "0.4.0", path = "./counter", optional = true }
 convert = { package = "box-convert", version = "0.1.2", path = "./convert", optional = true }

@@ -270,6 +270,9 @@ where
                         let w = Arc::new(AtomicWaker::new());
                         pending_wakers.push(w.clone());
                         PendingOnce::new(w).await;
+                        // Drain stale wakers that accumulated while we slept
+                        // (happens when a new mpsc message wakes us instead of a worker)
+                        while pending_wakers.pop().is_some() {}
                     } else if let Some(idx) = idle_idxs.pop() {
                         //select ...
                         if let Some(tx) = txs.get_mut(idx) {
