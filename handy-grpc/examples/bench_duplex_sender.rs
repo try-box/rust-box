@@ -1,12 +1,11 @@
-use handy_grpc::client::{Client, DuplexMailbox};
 use bytes::BufMut;
+use handy_grpc::client::{Client, DuplexMailbox};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 // cargo run -r --example bench_duplex_sender
 // cargo run -r -p handy-grpc --example bench_duplex_sender
-
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
